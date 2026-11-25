@@ -390,11 +390,163 @@
       $('cardToday').textContent = n;
     }
 
+    /* ---------- 今日队列 / 剩余量估算 / 复习包导出 ---------- */
+    let unitMapCache = null;
+    function loadUnitMap() {
+      if (unitMapCache) return Promise.resolve(unitMapCache);
+      if (window.UNITMAP && window.UNITMAP[DIR]) { unitMapCache = window.UNITMAP[DIR]; return Promise.resolve(unitMapCache); }
+      return new Promise(resolve => {
+        const s = document.createElement('script');
+        s.src = 'dist/content/' + DIR + '.unitmap.js';
+        s.onload = () => { unitMapCache = (window.UNITMAP || {})[DIR] || []; resolve(unitMapCache); };
+        s.onerror = () => { unitMapCache = []; resolve(unitMapCache); };
+        document.body.appendChild(s);
+      });
+    }
+
+    function loadQuizBundle() {
+      const bag = window.CONTENT && window.CONTENT[DIR];
+      if (bag && bag.quiz) return Promise.resolve(bag.quiz);
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'dist/content/' + DIR + '.quiz.js';
+        s.onload = () => resolve(((window.CONTENT || {})[DIR] || {}).quiz || { items: [] });
+        s.onerror = () => reject(new Error('题库加载失败'));
+        document.body.appendChild(s);
+      });
+    }
+
+    // 到期错题：答错过且未毕业、到期时间已过
+    function dueQuizIds() {
+      const now = Date.now();
+      return Object.keys(store.quiz).filter(id => {
+        const r = store.quiz[id];
+        return r && r.w > 0 && !r.graduated && (!r.dueAt || r.dueAt <= now);
+      });
+    }
+
+    function weakUnits(map, n) {
+      const rows = map.map(u => {
+        let att = 0, win = 0;
+        u.ids.forEach(id => {
+          const r = store.quiz[id];
+          if (!r) return;
+          att += (r.r || 0) + (r.w || 0);
+          win += (r.r || 0);
+        });
+        return { u, att, acc: att ? Math.round(win / att * 100) : null };
+      }).filter(x => x.att > 0 && x.acc !== null);
+      rows.sort((a, b) => a.acc - b.acc || b.att - a.att);
+      return rows.slice(0, n);
+    }
+
+    function renderQueue() {
+      const host = $('todayQueue');
+      if (!host) return;
+      const dc = dueCount();
+      const dq = dueQuizIds().length;
+      host.hidden = false;
+      $('qCardsNum').textContent = dc;
+      $('qWrongNum').textContent = dq;
+      $('queueWrong').setAttribute('href', 'quiz.html?dir=' + encodeURIComponent(DIR) + '&stat=due');
+      const mins = Math.round(dc * 0.5 + dq * 1.5);
+      $('queueEst').textContent = '今天还需约 ' + mins + ' 分钟（估算：卡片 0.5 分/张 + 错题 1.5 分/道）';
+      loadUnitMap().then(map => {
+        const box = $('qWeakList');
+        if (!box) return;
+        const weak = weakUnits(map, 3);
+        box.innerHTML = weak.length
+          ? weak.map(w => '<a href="quiz.html?dir=' + encodeURIComponent(DIR) + '&sec=' + encodeURIComponent(w.u.section) +
+              '&unit=' + w.u.unit + '">' + esc(w.u.title || ('单元 ' + w.u.unit)) + ' · ' + w.acc + '%</a>').join('')
+          : '<span class="tq-dim">暂无数据，先做几道题</span>';
+      });
+    }
+
+    function renderBackupHint() {
+      const el = $('backupHint');
+      if (!el) return;
+      const has = Object.keys(store.quiz).length + Object.keys(store.cards).length > 0;
+      if (!has) { el.hidden = true; return; }
+      if (!store.exportAt) { el.hidden = false; el.textContent = '尚未导出过复习包，建议导出备份'; return; }
+      const days = Math.floor((Date.now() - store.exportAt) / 86400000);
+      if (days >= 7) { el.hidden = false; el.textContent = '距上次导出 ' + days + ' 天，建议导出备份'; }
+      else el.hidden = true;
+    }
+
+    function packMarkdown(items) {
+      const lines = [];
+      const wrong = items.filter(it => { const r = store.quiz[it.id]; return r && r.w > 0 && !r.graduated; });
+      const cards = ALL.filter(isDue);
+      lines.push('# 复习包 · ' + (META.title || DIR));
+      lines.push('');
+      lines.push('导出时间：' + new Date().toLocaleString('zh-CN') + '　可直接打印或存入手机笔记。');
+      lines.push('');
+      lines.push('## 待复习卡片（' + cards.length + '）');
+      cards.slice(0, 80).forEach(c => lines.push('- [' + c.group + '] ' + c.title + '（#' + c.id + '）'));
+      if (!cards.length) lines.push('- 无');
+      lines.push('');
+      lines.push('## 错题（' + wrong.length + '）');
+      wrong.slice(0, 80).forEach(it => {
+        const r = store.quiz[it.id] || {};
+        lines.push('### ' + (it.unitTitle ? '[' + it.unitTitle + '] ' : '') + it.id + '　答错 ' + (r.w || 0) + ' 次');
+        lines.push('');
+        lines.push('> ' + String(it.q || '').replace(/\n+/g, ' ').slice(0, 240));
+        lines.push('');
+        if (it.answer) lines.push('**答案**：' + String(it.answer).replace(/\n+/g, ' ').slice(0, 240));
+        lines.push('');
+      });
+      if (!wrong.length) lines.push('- 无');
+      lines.push('');
+      lines.push('## 薄弱单元（正确率升序，最多 5 个）');
+      const weak = unitMapCache ? weakUnits(unitMapCache, 5) : [];
+      weak.forEach((w, i) => lines.push((i + 1) + '. ' + (w.u.title || ('单元 ' + w.u.unit)) + ' — 正确率 ' + w.acc + '%（' + w.att + ' 次作答）'));
+      if (!weak.length) lines.push('- 暂无作答数据');
+      lines.push('');
+      lines.push('## 今日剩余量（估算）');
+      const dc = cards.length, dq = dueQuizIds().length;
+      lines.push('- 到期卡片 ' + dc + ' 张 × 0.5 分钟 + 到期错题 ' + dq + ' 道 × 1.5 分钟 ≈ ' +
+        Math.round(dc * 0.5 + dq * 1.5) + ' 分钟');
+      return lines.join('\n') + '\n';
+    }
+
+    async function exportPack() {
+      const btn = $('exportBtn');
+      if (!btn) return;
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '导出中…';
+      try {
+        const bag = await loadQuizBundle();
+        await loadUnitMap();
+        const md = packMarkdown(Array.isArray(bag.items) ? bag.items : []);
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'review-pack-' + todayStr() + '.md';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        store.exportAt = Date.now();
+        save();
+        renderBackupHint();
+        toast('复习包已导出');
+      } catch (e) {
+        toast('导出失败：' + (e && e.message ? e.message : e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = old;
+      }
+    }
+
     function refresh(keepCurrent) {
       buildDeck(keepCurrent !== false);
       renderHeader();
       renderSidebar();
       renderCard();
+      renderQueue();
+      renderBackupHint();
     }
 
     /* ---------- actions ---------- */
@@ -694,6 +846,21 @@
     renderTabs();
     syncChips();
     refresh(false);
+
+    // 今日队列：点卡片数直接进入复习模式；导出复习包
+    const qCards = $('queueCards');
+    if (qCards) qCards.addEventListener('click', e => {
+      e.preventDefault();
+      if (!dueCount()) { toast('今天没有到期卡片'); return; }
+      state.mode = 'review';
+      state.status = 'all';
+      syncChips();
+      refresh(false);
+      const stage = document.querySelector('.stage') || document.body;
+      stage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    const exBtn = $('exportBtn');
+    if (exBtn) exBtn.addEventListener('click', exportPack);
 
     if (focusCard) {
       const i = state.deck.findIndex(c => c.id === focusCard.id);

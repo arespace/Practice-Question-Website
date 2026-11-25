@@ -1926,6 +1926,9 @@
       state.type = savedFilters.type || 'all';
       state.stat = savedFilters.stat || 'all';
     }
+    // 今日队列跳转：?stat=due 等显式状态优先于记忆的筛选
+    const urlStat = qp.get('stat');
+    if (urlStat && ['todo', 'wrong', 'right', 'due', 'fav', 'all'].includes(urlStat)) state.stat = urlStat;
 
     // 先快照已存位置：setView 的首次渲染会写入新位置，必须在它之前取
     const savedPos = store.pos ? { id: store.pos.id, idx: store.pos.idx } : null;

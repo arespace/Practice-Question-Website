@@ -18,6 +18,9 @@ screenshots/
 *.log
 logs/
 
+# 本地部署上下文（projectId / sessionId）
+tools/deploy.local.json
+
 # 编辑器与系统文件
 .idea/
 .vscode/

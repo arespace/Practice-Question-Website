@@ -1,7 +1,7 @@
 /**
  * 一键 release：build → pack（资源版本自动注入）→ 回归 → git tag → push。
- * 线上部署保持手动，本脚本不会调用任何部署命令。
- * 用法：node tools/release.js  [--skip-test]
+ * 默认不发布线上；带上 --deploy 才会把 build/site 覆盖发布到现有站点并核验 build-id。
+ * 用法：node tools/release.js  [--skip-test] [--deploy]
  */
 const fs = require('fs');
 const path = require('path');
@@ -9,6 +9,7 @@ const { execSync, execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const skipTest = process.argv.includes('--skip-test');
+const withDeploy = process.argv.includes('--deploy');
 
 function run(label, cmd) {
   console.log('\n▶ ' + label + '\n  $ ' + cmd);
@@ -50,5 +51,13 @@ console.log('release 完成');
 console.log('  buildId : ' + id);
 console.log('  tag     : ' + tag);
 console.log('  产物     : build/site（' + meta.files + ' 个文件，' + (meta.bytes / 1024).toFixed(1) + ' KB）');
-console.log('  部署     : 未执行（按约定手动）：');
-console.log('             trae-deploy deployments create … --type static-web（源目录 build/site/public）');
+if (withDeploy) {
+  console.log('  部署     : 发布 build/site 到现有站点并核验…');
+  require('./deploy').deployAndVerify({ buildId: id }).catch(e => {
+    console.error('\n[部署失败] ' + e.message);
+    process.exitCode = 1;
+  });
+} else {
+  console.log('  部署     : 未执行（默认手动）。需要自动发布时加 --deploy：');
+  console.log('             npm run release -- --deploy');
+}

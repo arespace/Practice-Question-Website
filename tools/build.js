@@ -145,6 +145,20 @@ manifest.dirs.forEach(meta => {
       BANNER + 'window.CONTENT=window.CONTENT||{};window.CONTENT["' + meta.key + '"]=window.CONTENT["' + meta.key + '"]||{};window.CONTENT["' + meta.key + '"].quiz=' + JSON.stringify(bundle) + ';\n',
       'utf8'
     );
+
+    // 单元索引（体积极小）：供首页「今日队列」定位薄弱单元，无需加载 500KB 题库
+    const unitMap = new Map();
+    items.forEach(it => {
+      const k = it.cat + ':' + it.unit;
+      let u = unitMap.get(k);
+      if (!u) { u = { section: it.section, unit: it.unit, title: it.unitTitle || '', ids: [] }; unitMap.set(k, u); }
+      u.ids.push(it.id);
+    });
+    fs.writeFileSync(
+      path.join(DIST_CONTENT, meta.key + '.unitmap.js'),
+      BANNER + 'window.UNITMAP=window.UNITMAP||{};window.UNITMAP["' + meta.key + '"]=' + JSON.stringify(Array.from(unitMap.values())) + ';\n',
+      'utf8'
+    );
   }
 
   if (!fs.existsSync(cardsFile) && !fs.existsSync(quizFile)) {

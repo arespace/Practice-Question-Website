@@ -63,6 +63,43 @@
       toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
     }
 
+    /* ---------------- 已读标记 ---------------- */
+    const store = Store.dir(DIR);
+    function readState() {
+      if (!store.read || typeof store.read !== 'object') store.read = { ids: [], last: null };
+      return store.read;
+    }
+    function isRead(id) { return readState().ids.indexOf(id) >= 0; }
+    function readCount(ch) { return ch.units.filter(x => isRead(x.id)).length; }
+    function renderResume() {
+      const el = document.getElementById('deepResume');
+      if (!el) return;
+      const last = readState().last;
+      const u = last ? byAnchor[last] : null;
+      if (!u) { el.hidden = true; return; }
+      el.hidden = false;
+      el.textContent = '继续上次读到：' + u.title + (isRead(u.id) ? '（已读）' : '');
+      el.onclick = () => openUnit(u.id);
+    }
+    function toggleRead(u) {
+      const rs = readState();
+      const i = rs.ids.indexOf(u.id);
+      if (i >= 0) rs.ids.splice(i, 1);
+      else rs.ids.push(u.id);
+      rs.last = u.id;
+      Store.save();
+      renderToc();
+      markActive(cur.anchorId);
+      if (cur.chapterId) expandChapter(cur.chapterId);
+      const btn = document.getElementById('deepReadBtn');
+      if (btn) {
+        btn.classList.toggle('on', isRead(u.id));
+        btn.textContent = isRead(u.id) ? '✓ 已读' : '标为已读';
+      }
+      renderResume();
+      toast(isRead(u.id) ? '已标记已读' : '已取消已读');
+    }
+
     /* ---------------- 章节包加载 ---------------- */
     const pkgCache = {};
     const pkgLoading = {};
@@ -136,9 +173,10 @@
         btn.className = 'deep-ch ' + ch.section;
         btn.dataset.ch = ch.id;
         btn.setAttribute('aria-expanded', 'false');
+        const rc = shown.filter(x => isRead(x.id)).length;
         btn.innerHTML = '<span class="deep-ch-no">' + ch.no + '</span>' +
           '<span class="deep-ch-name" title="' + esc(ch.title) + '">' + esc(ch.name) + '</span>' +
-          '<span class="deep-ch-cnt">' + shown.length + '</span>';
+          '<span class="deep-ch-cnt">' + (rc ? rc + '/' + shown.length : shown.length) + '</span>';
         btn.addEventListener('click', () => toggleChapter(ch.id));
 
         // 行尾「↗」：进入章节概览页
@@ -279,9 +317,13 @@
         '<div class="deep-meta">' + metaChips(u) + '</div>' +
         '<div class="deep-body">' + window.MD.render(body || '') + '</div>' +
         '<div class="deep-actions">' + quizLink + cardLink +
-        '<a href="' + chapterUrl(ch.id) + '" data-chapter="' + esc(ch.id) + '">本章目录</a>' + nextChLink + '</div>';
+        '<a href="' + chapterUrl(ch.id) + '" data-chapter="' + esc(ch.id) + '">本章目录</a>' + nextChLink +
+        '<button type="button" class="deep-read' + (isRead(u.id) ? ' on' : '') + '" id="deepReadBtn">' +
+        (isRead(u.id) ? '✓ 已读' : '标为已读') + '</button></div>';
       article.hidden = false;
       emptyEl.hidden = true;
+      const rb = document.getElementById('deepReadBtn');
+      if (rb) rb.addEventListener('click', () => toggleRead(u));
       crumbEl.innerHTML = '第 ' + ch.no + ' 章 · <b>' + esc(ch.name) + '</b> ｜ 单元 ' + u.unit;
       crumbEl.title = '第 ' + ch.no + ' 章 · ' + ch.name + ' · 单元 ' + u.unit;
       posEl.textContent = u.unit + ' / ' + secTotal[u.section];
@@ -428,6 +470,9 @@
         if (!u) throw new Error('章节包中缺少单元 ' + anchorId);
         cur = { chapterId: meta.chapter, anchorId: anchorId };
         renderUnit(meta, u.body);
+        readState().last = anchorId;
+        Store.save();
+        renderResume();
         expandChapter(meta.chapter);
         markActive(anchorId);
         if (!opts.silentUrl) updateUrl(meta, null);
@@ -743,6 +788,7 @@
       });
     }
     setPrio(new URLSearchParams(location.search).get('p') || '');
+    renderResume();
 
     // 路由：?unit=&sec= 优先，其次 ?chapter=，其次 hash，最后第一个单元
     const params = new URLSearchParams(location.search);

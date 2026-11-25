@@ -122,6 +122,29 @@
       <button class="primary-btn small" id="cardDueBtn" hidden>开始复习</button>
     </div>
 
+    <section class="today-queue" id="todayQueue" hidden>
+      <div class="tq-head">
+        <h3>今日队列</h3>
+        <span class="tq-est" id="queueEst"></span>
+      </div>
+      <div class="tq-rows">
+        <a class="tq-row" id="queueCards" href="#">
+          <b id="qCardsNum">0</b><span>张到期卡片</span><em>开始复习 →</em>
+        </a>
+        <a class="tq-row" id="queueWrong" href="quiz.html">
+          <b id="qWrongNum">0</b><span>道到期错题</span><em>去检测题 →</em>
+        </a>
+        <div class="tq-row tq-weak">
+          <span class="tq-label">薄弱单元</span>
+          <div class="tq-weak-list" id="qWeakList"></div>
+        </div>
+      </div>
+      <div class="tq-foot">
+        <button type="button" class="ghost-btn small" id="exportBtn">导出复习包（Markdown）</button>
+        <span class="tq-backup" id="backupHint" hidden></span>
+      </div>
+    </section>
+
     <article class="card" id="card" aria-live="polite">
       <div class="card-meta">
         <span class="badge" id="badgeBank">C++</span>

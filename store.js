@@ -46,7 +46,9 @@
       streak: { days: 0, last: '' },
       goal: 20,
       pos: null,
-      filters: null
+      filters: null,
+      read: null,
+      exportAt: 0
     };
   }
 
@@ -140,6 +142,15 @@
           stat: STATES.indexOf(d.filters.stat) >= 0 ? d.filters.stat : 'all'
         }
       : null;
+    // 深读已读（v3 新增字段，旧数据缺省为 null）
+    d.read = d.read && typeof d.read === 'object'
+      ? {
+          ids: Array.isArray(d.read.ids) ? d.read.ids.filter(id => typeof id === 'string') : [],
+          last: typeof d.read.last === 'string' && d.read.last ? d.read.last : null
+        }
+      : null;
+    // 上次导出复习包的时间戳（毫秒，0 = 从未导出）
+    d.exportAt = num(d.exportAt, 0);
     return d;
   }
 

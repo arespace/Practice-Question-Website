@@ -9,7 +9,8 @@
     "serve": "node tools/serve.js 8126 build/site",
     "test": "playwright test",
     "verify": "node tools/build.js && node tools/pack.js --zip && playwright test",
-    "release": "node tools/release.js"
+    "release": "node tools/release.js",
+    "release:deploy": "node tools/release.js --deploy"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0"

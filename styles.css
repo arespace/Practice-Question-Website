@@ -955,3 +955,49 @@ kbd {
   .stage-nav { bottom: 10px; padding: 7px 8px; }
   .nav-btn { height: 34px; }
 }
+
+/* ---------- 今日队列 / 复习包 ---------- */
+.today-queue {
+  margin: 14px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.tq-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.tq-head h3 { margin: 0; font-size: 14px; letter-spacing: .04em; }
+.tq-est { font-size: 12px; color: var(--text-dim); }
+.tq-rows { display: grid; gap: 8px; margin-top: 10px; }
+.tq-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-soft); color: var(--text); text-decoration: none;
+  font-size: 13px;
+}
+.tq-row b { font-size: 18px; color: var(--accent); min-width: 26px; }
+.tq-row em { margin-left: auto; font-style: normal; font-size: 12px; color: var(--text-dim); }
+.tq-row:hover em { color: var(--accent); }
+.tq-weak { flex-wrap: wrap; align-items: flex-start; }
+.tq-label { font-size: 12px; color: var(--text-dim); }
+.tq-weak-list { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.tq-weak-list a { font-size: 12px; color: var(--text); text-decoration: none; border-bottom: 1px dashed var(--border-strong); }
+.tq-weak-list a:hover { color: var(--accent); }
+.tq-dim { font-size: 12px; color: var(--text-faint); }
+.tq-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.tq-backup { font-size: 12px; color: var(--mid); }
+
+/* ---------- 深读：已读 / 继续上次 ---------- */
+.deep-resume {
+  display: block; width: 100%; margin: 0 0 12px;
+  padding: 10px 14px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 10px;
+  background: var(--accent-soft); color: var(--text); font-size: 13px;
+}
+.deep-resume:hover { border-color: var(--accent); }
+.deep-actions .deep-read {
+  margin-left: auto; padding: 6px 12px; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  background: transparent; color: var(--text-dim); font-size: 12px;
+}
+.deep-actions .deep-read.on { color: var(--ok); border-color: var(--ok); }
+
