@@ -1,0 +1,17 @@
+{
+  "name": "ue-cpp-quiz",
+  "private": true,
+  "version": "1.0.0",
+  "description": "C++/UE 面试刷题站：速背卡 / 深读 / 检测题",
+  "scripts": {
+    "build": "node tools/build.js",
+    "pack": "node tools/pack.js --zip",
+    "serve": "node tools/serve.js 8126 build/site",
+    "test": "playwright test",
+    "verify": "node tools/build.js && node tools/pack.js --zip && playwright test",
+    "release": "node tools/release.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

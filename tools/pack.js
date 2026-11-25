@@ -112,18 +112,102 @@ function staleWarnings() {
   return warns;
 }
 
-function pad(s, n) {
-  s = String(s);
+// 允许存在于仓库、但不进入发布包的内容（新增运行文件必须登记到 FILES）
+const ALLOW_UNSHIPPED = new Set([
+  'build', 'content', 'dist', 'tools', 'tests', 'node_modules', '.git',
+  '.gitignore', 'package.json', 'package-lock.json', 'playwright.config.mjs', 'README.md',
+  'test-results', 'playwright-report', 'screenshots', '.tmp'
+]);
+
+// 白名单闸门：仓库根出现未登记的文件/目录时直接失败，避免线上 404
+function assertNoUnlisted() {
+  const unlisted = fs.readdirSync(ROOT).filter(n => !FILES.includes(n) && !ALLOW_UNSHIPPED.has(n));
+  if (unlisted.length) {
+    console.error('\n[发布清单] 以下文件/目录未登记，打包终止：' + unlisted.join(', '));
+    console.error('  运行必需 → 加入 tools/pack.js 的 FILES；不需要发布 → 加入 ALLOW_UNSHIPPED。');
+    process.exit(1);
+  }
+}
+
+// 引用闸门：HTML 里引用的本地资源必须真实存在于产物中
+function assertHtmlRefs() {
+  const bad = [];
+  FILES.filter(f => f.endsWith('.html')).forEach(h => {
+    const text = fs.readFileSync(path.join(OUT, h), 'utf8');
+    const re = /(?:href|src)="([^"]+?)(?:\?[^"]*)?"/g;
+    let m;
+    while ((m = re.exec(text))) {
+      const ref = m[1];
+      if (/^(https?:|data:|#|\/\/)/.test(ref)) continue;
+      if (!fs.existsSync(path.join(OUT, ref))) bad.push(h + ' → ' + ref);
+    }
+  });
+  if (bad.length) {
+    console.error('\n[引用检查] 以下引用在产物中不存在（会 404）：');
+    bad.forEach(b => console.error(' - ' + b));
+    process.exit(1);
+  }
+}
+
+function buildId() {
+  const h = crypto.createHash('sha256');
+  rows.slice().sort((a, b) => a.rel.localeCompare(b.rel)).forEach(r => h.update(r.rel + ':' + r.hash + '\n'));
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  const ts = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  return ts + '-' + h.digest('hex').slice(0, 8);
+}
+
+// 按产物文件内容哈希重写三页 HTML 的 ?v=，并写入 build-id meta
+function versionAssets(id) {
+  FILES.filter(f => f.endsWith('.html')).forEach(h => {
+    const p = path.join(OUT, h);
+    let text = fs.readFileSync(p, 'utf8');
+    text = text.replace(/(href|src)="([^"?]+\.(?:css|js))(?:\?v=[^"]*)?"/g, (all, attr, ref) => {
+      const target = path.join(OUT, ref);
+      if (!fs.existsSync(target)) return all;
+      return `${attr}="${ref}?v=${sha(fs.readFileSync(target))}"`;
+    });
+    if (!/name="build-id"/.test(text)) {
+      text = text.replace(/(<meta name="viewport"[^>]*>)/, '$1\n  <meta name="build-id" content="' + id + '" />');
+    }
+    fs.writeFileSync(p, text);
+  });
+}
+
+function writeVersion(id) {
+  const git = (() => {
+    try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT }).toString().trim(); }
+    catch (e) { return null; }
+  })();
+  const meta = {
+    buildId: id,
+    builtAt: new Date().toISOString(),
+    files: rows.length,
+    bytes: rows.reduce((a, r) => a + r.size, 0),
+    gitCommit: git
+  };
+  fs.writeFileSync(path.join(OUT, 'version.json'), JSON.stringify(meta, null, 2) + '\n');
+  return meta;
+}
+
+function pad(s, n) {  s = String(s);
   // 中文按 2 显示宽度计算
   const w = [...s].reduce((a, c) => a + (c.charCodeAt(0) > 255 ? 2 : 1), 0);
   return s + ' '.repeat(Math.max(0, n - w));
 }
 
 /* ---------- 主流程 ---------- */
+assertNoUnlisted();
 rmrf(OUT);
 fs.mkdirSync(OUT, { recursive: true });
 
 const rows = FILES.map(copyFile).filter(Boolean).concat(copyDist());
+
+assertHtmlRefs();
+const id = buildId();
+versionAssets(id);
+const meta = writeVersion(id);
 
 let total = 0;
 console.log(pad('文件', 30) + pad('字节', 10) + pad('mtime', 21) + 'sha256');
@@ -135,6 +219,8 @@ rows.forEach(r => {
 console.log('-'.repeat(78));
 console.log('共 ' + rows.length + ' 个文件，' + (total / 1024).toFixed(1) + ' KB → ' + path.relative(ROOT, OUT));
 console.log('产物清单与源文件哈希一致：' + (process.exitCode ? '否' : '是'));
+console.log('buildId：' + id + '（已写入 version.json 与页面 meta，资源 ?v= 已按内容哈希重写）');
+console.log('version.json：files=' + meta.files + ' bytes=' + meta.bytes + ' git=' + (meta.gitCommit || 'n/a'));
 
 const warns = staleWarnings();
 if (warns.length) {
