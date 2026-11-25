@@ -1,0 +1,156 @@
+[
+  {
+    "id": "ue3-x15",
+    "cat": "ue3",
+    "unit": 15,
+    "unitTitle": "Q15 裸指针与 TObjectPtr",
+    "type": "code",
+    "diff": 3,
+    "q": "一个武器 Actor 用普通 struct 记录命中过的目标，跑几分钟后这些目标“偶发消失”，有时指针直接悬空。请说明成因，并分别给出“保活”和“不保活”两种修法。\n\n```cpp\nstruct FHitRecord\n{\n    TArray<TObjectPtr<AActor>> Targets;   // 期望这些目标被保活\n};\n\nUCLASS()\nclass AMyWeapon : public AActor\n{\n    GENERATED_BODY()\npublic:\n    void RecordHit(AActor* Hit);\nprivate:\n    FHitRecord HitRecord;                // 普通成员，没有 UPROPERTY\n};\n\nvoid AMyWeapon::RecordHit(AActor* Hit)\n{\n    if (IsValid(Hit)) { HitRecord.Targets.Add(Hit); }\n}\n```",
+    "ref": "`FHitRecord` 是普通 struct，既不是 `USTRUCT`，成员也没有 `UPROPERTY`，GC 遍历反射数据时看不到这条引用边：元素不会把目标标记为存活，目标被回收后容器里留下的是悬垂值（后续 `IsValid` 为 false，访问即崩）。修法一（保活）：写成 `USTRUCT() struct FHitRecord { GENERATED_BODY() UPROPERTY() TArray<TObjectPtr<AActor>> Targets; };`，并且 `AMyWeapon` 里的成员也要写成 `UPROPERTY() FHitRecord HitRecord;`，嵌套的每一层都要反射。修法二（不保活）：元素改成 `TWeakObjectPtr<AActor>`，取用前 `Get()` 判有效。",
+    "explain": "引用边来自反射数据，不是指针类型：`TObjectPtr` 写在无反射的结构体里和裸指针没区别。典型表现是“偶发丢失”——GC 时机不固定，看起来像玄学。易错点是只给内层加了 `UPROPERTY` 而外层成员漏了，一样没有引用边。判分点：普通 struct 无反射、两层都要 `UPROPERTY`、或改用弱引用表达不保活。"
+  },
+  {
+    "id": "ue3-x16",
+    "cat": "ue3",
+    "unit": 16,
+    "unitTitle": "Q16 TWeakObjectPtr 的语义和适用场景",
+    "type": "code",
+    "diff": 2,
+    "q": "AI 组件为了省掉每帧回查，把弱指针 `Get()` 的结果缓存成裸指针成员，目标被 Destroy 并经过 GC 后访问崩溃。请指出问题并给出正确写法。\n\n```cpp\nUCLASS()\nclass UAITargetingComponent : public UActorComponent\n{\n    GENERATED_BODY()\npublic:\n    void SetTarget(AActor* InTarget) { WeakTarget = InTarget; }\n\n    virtual void TickComponent(float Dt, ELevelTick Type,\n        FActorComponentTickFunction* Fn) override\n    {\n        Super::TickComponent(Dt, Type, Fn);\n        if (!CachedTarget)                  // 只取一次，之后一直复用\n        {\n            CachedTarget = WeakTarget.Get();\n        }\n        if (CachedTarget)\n        {\n            MoveToward(CachedTarget->GetActorLocation());\n        }\n    }\nprivate:\n    UPROPERTY() TWeakObjectPtr<AActor> WeakTarget;\n    AActor* CachedTarget = nullptr;          // 裸指针成员\n};\n```",
+    "ref": "`CachedTarget` 是裸指针成员，而 `WeakTarget.Get()` 只保证返回那一刻对象有效。目标 `Destroy()` 后，内存要等 GC 才回收，这期间指针非空、`if (CachedTarget)` 照样通过；GC 之后则彻底悬垂，`GetActorLocation()` 就是野指针读。弱指针的价值只在“当场取用”，把结果跨帧存下来就退化成普通裸指针。正确写法是只保留弱指针、每次使用重新取一次：`if (AActor* T = WeakTarget.Get()) { MoveToward(T->GetActorLocation()); } else { WeakTarget.Reset(); }`，把局部指针的使用区间压到最短。",
+    "explain": "弱指针内部记的是对象索引加序列号，`Get()` 会回查对象数组状态，因此失效能被发现；但返回值是普通裸指针，不携带任何失效信息。易错点：以为“判过一次空就永远安全”，以及把 `Get()` 结果存成成员。判分点：指出悬垂、说明判空拦不住、每次取用重新 `Get()` 一次并在失效时 `Reset()`。"
+  },
+  {
+    "id": "ue3-x17",
+    "cat": "ue3",
+    "unit": 17,
+    "unitTitle": "Q17 TSharedPtr、TSharedRef、TUniquePtr 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "有人把共享指针当成“能进反射的成员”写进了 UCLASS，模块在生成反射代码时直接报错。请指出报错原因，并给出两条可行的修改路线。\n\n```cpp\nUSTRUCT()\nstruct FDecodedImage\n{\n    GENERATED_BODY()\n    UPROPERTY() TArray<uint8> Pixels;\n};\n\nUCLASS()\nclass UImageHolder : public UObject\n{\n    GENERATED_BODY()\npublic:\n    UPROPERTY() TSharedPtr<FDecodedImage> Image;          // 行 A\n    UPROPERTY() TArray<TSharedPtr<FDecodedImage>> Cache;  // 行 B\n};\n```",
+    "ref": "UHT 在解析 `UPROPERTY` 类型时会拒绝 `TSharedPtr`：它不是可反射类型，报错发生在生成反射代码（UHT）阶段，而不是普通 C++ 编译阶段。`UPROPERTY` 只接受 UObject 指针（`TObjectPtr`/裸指针/`TWeakObjectPtr`）、基础类型、USTRUCT 及其容器。路线一：这份数据要跨 GC、要给蓝图看，就把它做成 UObject（`UCLASS() class UDecodedImage : public UObject`），成员写 `UPROPERTY() TObjectPtr<UDecodedImage> Image;`。路线二：它确实是非 UObject 的共享对象，就去掉 `UPROPERTY`，作为普通 C++ 成员使用并自己保证生命周期（不进 GC 图、不序列化）。",
+    "explain": "共享指针管的是非 UObject，`UPROPERTY` 是 GC 反射登记，两者属于不同体系，混写的第一个报错点就在 UHT。易错点：以为“加个 `UPROPERTY` 就能序列化/暴露共享指针”，或者把错误当成普通编译器的锅。判分点：定位到 UHT/反射阶段、说明可反射类型范围、给出 UObject 化与去掉 `UPROPERTY` 两条路线。"
+  },
+  {
+    "id": "ue3-x18",
+    "cat": "ue3",
+    "unit": 18,
+    "unitTitle": "Q18 什么时候该用共享指针",
+    "type": "code",
+    "diff": 2,
+    "q": "一个每帧执行的缓存遍历把共享指针按值往上传，性能采样里这一行是热点。假设这张图只有 `Slots` 这一处持有，请说出打印的计数、开销来源和改法。\n\n```cpp\nvoid FImageCache::Tick()\n{\n    for (const FSlot& Slot : Slots)\n    {\n        Upload(Slot.Image);       // Slot.Image 是 TSharedPtr<FDecodedImage>\n    }\n}\n\nvoid FImageCache::Upload(TSharedPtr<FDecodedImage> Img)\n{\n    UE_LOG(LogTemp, Log, TEXT(\"count=%d\"), Img.GetSharedReferenceCount());\n    RHIUpload(Img->Pixels);\n}\n```",
+    "ref": "`Slots` 这一处持有让共享计数为 1，传参时形参再拷贝一份，所以函数内 `GetSharedReferenceCount()` 打印 2；函数返回析构形参，计数回落 1。开销来自每次调用的一对原子操作（自增、自减）加控制块访存，默认 `ThreadSafe` 模式下原子操作本身还带同步成本，这正是按值传共享指针的固定代价。改法：只读传参用 `const TSharedPtr<FDecodedImage>&`；接口要求“必定非空”就改 `const TSharedRef<FDecodedImage>&`，同样不增加计数；只有要接管所有权时才按值或 `MoveTemp` 传入。",
+    "explain": "共享指针的成本不在“智能”，而在“共享”：每次拷贝原子自增、每次析构原子自减。热路径上按值传参会把一次函数调用放大成两次原子操作，循环几万次就是可测量热点。易错点：以为编译器会优化掉计数，或用共享指针只是图“看起来现代”。判分点：打印 2、说明原子增减、改 const 引用或 `TSharedRef`。"
+  },
+  {
+    "id": "ue3-x19",
+    "cat": "ue3",
+    "unit": 19,
+    "unitTitle": "Q19 循环引用会泄漏吗",
+    "type": "code",
+    "diff": 3,
+    "q": "轮询器把自己的回调存成成员，回调里用 `AsShared()` 捕获自身，`Reset()` 之后对象也不析构。请说明成因并给出改法。\n\n```cpp\nclass FHttpPoller : public TSharedFromThis<FHttpPoller>\n{\npublic:\n    void Start()\n    {\n        OnDone = [Self = AsShared()]()\n        {\n            Self->HandleDone();\n        };\n    }\n    ~FHttpPoller() { UE_LOG(LogTemp, Log, TEXT(\"poller destroyed\")); }\nprivate:\n    void HandleDone();\n    TFunction<void()> OnDone;          // 对象持有 lambda\n};\n\nTSharedPtr<FHttpPoller> Poller = MakeShared<FHttpPoller>();\nPoller->Start();\nPoller.Reset();                        // 一条 destroyed 都不打印\n```",
+    "ref": "lambda 用 `Self = AsShared()` 捕获了一份 `TSharedPtr<FHttpPoller>`，而这份 lambda 又存在对象自己的 `OnDone` 成员里，形成自引用环：对象持 lambda、lambda 持对象，共享计数至少为 1，`Poller.Reset()` 只能减掉自己那份，永远减不到 0。改法一：改捕弱引用，执行时再升级——`OnDone = [Weak = TWeakPtr<FHttpPoller>(AsShared())]() { if (auto Self = Weak.Pin()) { Self->HandleDone(); } };`。改法二：在明确的生命周期节点显式断链，例如 `OnDone = nullptr;` 后再 `Reset()`。",
+    "explain": "共享指针没有“根集”，只有计数，环内互撑就是稳定泄漏；自引用环比双向引用更隐蔽，因为代码里看不到显式的父子关系，只能靠构造/析构日志发现。易错点：以为 `AsShared()` 只是“拿一下自己”，不会增加计数。判分点：识别对象↔lambda 的环、说明计数永不归零、弱捕获加 `Pin()` 或显式断链。"
+  },
+  {
+    "id": "ue3-x20",
+    "cat": "ue3",
+    "unit": 20,
+    "unitTitle": "Q20 IsValid 和 nullptr 判断的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段 HUD 判活写了三层，评审认为既冗余又漏了一种状态，目标销毁的那一帧仍可能出事。请指出哪些判断重复、漏掉了什么，并给出精简写法。\n\n```cpp\n// 成员：UPROPERTY() TWeakObjectPtr<AActor> CachedTarget;\nvoid AMyHUD::Tick(float DeltaSeconds)\n{\n    Super::Tick(DeltaSeconds);\n\n    if (CachedTarget.IsValid())                // ①\n    {\n        AActor* Target = CachedTarget.Get();   // ②\n        if (IsValid(Target))                   // ③\n        {\n            DrawMarkerAt(Target->GetActorLocation());\n        }\n    }\n}\n```",
+    "ref": "①②③ 是三次回查：`CachedTarget.IsValid()` 与 `Get()` 内部都要查一次对象数组状态，而 `IsValid(Target)` 只是把 `Get()` 刚返回的裸指针再判一遍，属于纯冗余。精简成一次取用：`if (AActor* Target = CachedTarget.Get()) { ... }`。真正漏掉的是 Actor 的销毁中间态：`Destroy()` 之后本帧内对象可能还在、`IsValid` 仍可能为真，但组件和世界关系已经在拆，稳妥写法是再补一层 `!Target->IsActorBeingDestroyed()`。",
+    "explain": "`Get()` 已经内含有效性检查，同一段使用里应该只取一次并复用局部指针；`IsValid` 覆盖的是“对象已失效”，不覆盖 Actor 的销毁流程窗口，所以文档要求 `IsValid(Actor) && !Actor->IsActorBeingDestroyed()`。易错点：把弱指针的 `IsValid()` 和 `Get()` 一起写，既慢又漏状态。判分点：指出 ①③ 冗余、给出 `if (auto* T = W.Get())`、补 `IsActorBeingDestroyed`。"
+  },
+  {
+    "id": "ue3-x21",
+    "cat": "ue3",
+    "unit": 21,
+    "unitTitle": "Q21 TSoftObjectPtr 和 TSubclassOf 解决什么问题",
+    "type": "code",
+    "diff": 3,
+    "q": "有人把 `TSoftObjectPtr` 当普通指针用，加了两行后模块编译不过。请指出是哪两行、各自原因，并给出最小改法（资源较大，不适合每帧同步读盘）。\n\n```cpp\nUPROPERTY(EditDefaultsOnly, Category = \"Weapon\")\nTSoftObjectPtr<UStaticMesh> MeshAsset;\n\nvoid AMyWeapon::BeginPlay()\n{\n    Super::BeginPlay();\n    const FBoxSphereBounds Bounds = MeshAsset->GetBounds();   // 行 A\n    MeshComponent->SetStaticMesh(MeshAsset);                  // 行 B\n}\n```",
+    "ref": "两行都编译不过。行 A：`TSoftObjectPtr` 内部只是 `FSoftObjectPath`，没有 `operator->`，不能解引用。行 B：它也不能隐式转成 `UStaticMesh*`。最小改法：`if (UStaticMesh* Mesh = MeshAsset.LoadSynchronous()) { Mesh->GetBounds(); MeshComponent->SetStaticMesh(Mesh); }`，加载后才是普通 UObject，保活靠组件的强引用。大资源应改异步：`Streamable.RequestAsyncLoad(MeshAsset.ToSoftObjectPath(), FStreamableDelegate::CreateUObject(this, &AMyWeapon::OnMeshReady));`，回调里再 `Get()` 并判空。",
+    "explain": "软引用把“引用”和“加载”拆开，所以它既不是指针也不会自动加载；`IsNull()` 表示没配置，`Get()` 只在加载完成后才返回有效对象。易错点：成员写成 `TSoftObjectPtr` 后直接 `->`，或者以为用的时候会自动加载。判分点：指出两行都是类型错误、给出 `LoadSynchronous` 与 `StreamableManager` 两条加载路径、强调加载后判空。"
+  },
+  {
+    "id": "ue4-x22",
+    "cat": "ue4",
+    "unit": 22,
+    "unitTitle": "Q22 Actor 的完整生命周期",
+    "type": "code",
+    "diff": 2,
+    "q": "给同一 Actor 在若干阶段打日志：关卡里摆一个实例，GameMode 的 `BeginPlay` 里再 Spawn 一个。请分别写出两条路径的打印顺序，并指出 Spawn 路径缺少哪一步。\n\n```cpp\nAMyProbe::AMyProbe()\n{\n    PrimaryActorTick.bCanEverTick = false;\n    UE_LOG(LogTemp, Log, TEXT(\"1 Constructor %s\"), *GetName());\n}\nvoid AMyProbe::PostLoad()\n{\n    Super::PostLoad();\n    UE_LOG(LogTemp, Log, TEXT(\"2 PostLoad %s\"), *GetName());\n}\nvoid AMyProbe::PostActorCreated()\n{\n    Super::PostActorCreated();\n    UE_LOG(LogTemp, Log, TEXT(\"3 PostActorCreated %s\"), *GetName());\n}\nvoid AMyProbe::PostInitializeComponents()\n{\n    Super::PostInitializeComponents();\n    UE_LOG(LogTemp, Log, TEXT(\"4 PostInitializeComponents %s\"), *GetName());\n}\nvoid AMyProbe::BeginPlay()\n{\n    Super::BeginPlay();\n    UE_LOG(LogTemp, Log, TEXT(\"5 BeginPlay %s\"), *GetName());\n}\n```",
+    "ref": "关卡实例（Load 路径）：`1 Constructor` → `2 PostLoad` → `4 PostInitializeComponents` → `5 BeginPlay`。运行期 Spawn：`1 Constructor` → `3 PostActorCreated` → `4 PostInitializeComponents` → `5 BeginPlay`。Spawn 路径缺的是 `PostLoad`，因为它只对从磁盘反序列化的对象触发，新生成的对象走 `PostActorCreated`。另外构造函数在 CDO 上也会跑一次，日志里会多一份编号 1；两条路径的 `BeginPlay` 都在各自末端，但不同 Actor 之间的相对顺序没有保证。",
+    "explain": "初始化阶段的本质顺序是构造 →（`PostLoad` 或 `PostActorCreated`）→ 组件 `InitializeComponent` → PIC → `BeginPlay`；Spawn 与 Load 的结构性差异只有 `PostLoad` 有无。易错点：以为 `PostLoad` 是通用初始化钩子，或把 PIC 写到 `BeginPlay` 之后。判分点：两条路径顺序、`PostLoad` 缺失、`BeginPlay` 位置、跨 Actor 顺序无保证。"
+  },
+  {
+    "id": "ue4-x23",
+    "cat": "ue4",
+    "unit": 23,
+    "unitTitle": "Q23 构造函数里能做什么、不能做什么",
+    "type": "code",
+    "diff": 2,
+    "q": "Enemy 在构造函数里向静态管理器注册自己，还加了 `GetWorld()` 判空，结果 PIE 里一条记录都没有。请解释原因，并说明注册该移到哪个阶段、为什么。\n\n```cpp\nAMyEnemy::AMyEnemy()\n{\n    PrimaryActorTick.bCanEverTick = true;\n    Weapon = CreateDefaultSubobject<UStaticMeshComponent>(TEXT(\"Weapon\"));\n\n    if (GetWorld())                              // 判空之后再注册\n    {\n        UEnemyRegistry::Get()->Register(this);   // 静态管理器\n        GetWorld()->GetTimerManager().SetTimer(\n            Handle, this, &AMyEnemy::Pulse, 1.f, true);\n    }\n}\n```",
+    "ref": "构造函数执行时没有 World：CDO 构造必然为空，普通实例构造时通常也为空，所以 `GetWorld()` 恒返回 `nullptr`，`if` 永远不成立，注册和定时器都不会执行，也不会报错。这个判空比直接崩更难查，因为代码“看起来考虑了空指针”，实际是把逻辑静默关掉了。改法：注册与定时器移到 `BeginPlay`（定时器在 `EndPlay` 里 `ClearTimer` 并调 `Super::EndPlay(Reason)`）；构造函数只保留默认值、`CreateDefaultSubobject` 和 tick/复制开关。",
+    "explain": "判断标准只有一条：这段代码是否依赖 World 或依赖别的对象已存在，依赖就必须往后放。另外构造函数会在 CDO、每个实例、蓝图重编译时反复执行，全局注册必须幂等，否则管理器里会堆出大量幽灵记录。易错点：用判空“修”构造函数的报错，让逻辑静默失效。判分点：World 恒空、guard 使逻辑不执行、移到 `BeginPlay`、CDO 多次构造。"
+  },
+  {
+    "id": "ue4-x24",
+    "cat": "ue4",
+    "unit": 24,
+    "unitTitle": "Q24 BeginPlay 和 PostInitializeComponents 的区别",
+    "type": "code",
+    "diff": 3,
+    "q": "血量上限在组件的 `BeginPlay` 里按等级算好，Actor 的 `BeginPlay` 里读取却总是 0。请说明时序原因，并给出两种正确做法。\n\n```cpp\nvoid UHealthComponent::BeginPlay()\n{\n    Super::BeginPlay();\n    MaxHealth = BaseHealth * Level;        // 上限在这里才算出来\n}\n\nvoid AMyTower::BeginPlay()\n{\n    Super::BeginPlay();\n    UHealthComponent* H = FindComponentByClass<UHealthComponent>();\n    UE_LOG(LogTemp, Log, TEXT(\"max=%d\"), H ? H->GetMaxHealth() : -1);  // 打印 0\n    SetActorTickEnabled(true);\n}\n```",
+    "ref": "派发顺序是 Actor 的 `BeginPlay` 先执行，之后才派发它各个组件的 `BeginPlay`，所以此刻组件的 `MaxHealth` 还是成员默认值 0。把读取改到 `PostInitializeComponents` 也不行：PIC 只保证组件已注册，组件 `BeginPlay` 依然更晚。做法一：把计算提前到组件的 `InitializeComponent`（受 `bWantsInitializeComponent` 控制，早于 PIC 和两个 `BeginPlay`）。做法二：保持计算在组件 `BeginPlay`，由组件广播事件/委托，Actor 收到通知后再读，或者延迟一帧读取。",
+    "explain": "PIC 解决“我的组件都装好了”，`BeginPlay` 解决“游戏开始了”，组件 `BeginPlay` 又在 Actor `BeginPlay` 之后，这三个时序点最容易混用。易错点：以为 PIC 里能读到组件 `BeginPlay` 的产物，或者在 Actor `BeginPlay` 里假设组件已算好数据。判分点：说明 Actor→组件的派发顺序、指出 PIC 同样不行、给出 `InitializeComponent` 或委托/延迟一帧两种做法。"
+  },
+  {
+    "id": "ue4-x25",
+    "cat": "ue4",
+    "unit": 25,
+    "unitTitle": "Q25 Actor 的 Tick 是怎么被调用的",
+    "type": "code",
+    "diff": 2,
+    "q": "为省 CPU 把 Tick 间隔设成 0.5 秒，并用传入的 `DeltaSeconds` 做倒计时，低帧率下倒计时明显跑偏。请解释原因并给出正确做法。\n\n```cpp\nAMyProjectile::AMyProjectile()\n{\n    PrimaryActorTick.bCanEverTick = true;\n    PrimaryActorTick.TickInterval = 0.5f;    // 想每 0.5 秒跑一次\n}\n\nvoid AMyProjectile::Tick(float DeltaSeconds)\n{\n    Super::Tick(DeltaSeconds);\n    Remain -= DeltaSeconds;                  // 用 Dt 推进倒计时\n    if (Remain <= 0.f)\n    {\n        Explode();\n    }\n}\n```",
+    "ref": "`TickInterval` 不是定时器：TickManager 只是累积时间，累计够了才在某一帧执行，实际间隔会被帧长量化，0.5 秒在 20fps 下可能变成 0.5~0.55 秒，低帧率时误差被放大。间隔帧传入的 `DeltaSeconds` 语义还随引擎版本不同（可能给实际帧长，也可能给接近间隔的值），不能假设恒等于 0.5。正确做法：需要精确计时就用 `FTimerManager`，例如 `GetWorldTimerManager().SetTimer(Handle, this, &AMyProjectile::OnTimeout, 0.5f, false);` 到点直接 `Explode()`；或者自己累加真实帧长推进逻辑，`TickInterval` 只当降频手段。",
+    "explain": "Tick 是稀缺资源：`bCanEverTick` 决定是否注册，`SetActorTickEnabled` 决定是否派发，`TickInterval` 只做降频、不提供定时精度，暂停时是否继续由 `bTickEvenWhenPaused` 决定。易错点：把 `TickInterval` 当精确定时器，或假设间隔帧的 `DeltaSeconds` 等于间隔。判分点：累积跳帧与帧长量化、Dt 语义不定、改用 Timer 或自己累计真实帧长。"
+  },
+  {
+    "id": "ue4-x26",
+    "cat": "ue4",
+    "unit": 26,
+    "unitTitle": "Q26 EndPlay 和 Destroy 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "Actor 只在 `Reason == Destroyed` 时清理定时器和子系统注册，切关卡后旧对象仍在被回调。请指出问题，并给出与 Reason 无关的正确写法。\n\n```cpp\nvoid AMyActor::EndPlay(const EEndPlayReason::Type Reason)\n{\n    UE_LOG(LogTemp, Log, TEXT(\"[EndPlay] %d\"), static_cast<int32>(Reason));\n    if (Reason == EEndPlayReason::Destroyed)\n    {\n        GetWorldTimerManager().ClearTimer(Handle);\n        if (UMySubsystem* S = GetWorld()->GetSubsystem<UMySubsystem>())\n        {\n            S->Unregister(this);\n        }\n    }\n    Super::EndPlay(Reason);\n}\n```",
+    "ref": "切关卡时 Reason 是 `LevelTransition`，PIE 停止是 `EndPlayInEditor`，退出是 `Quit`，都进不了 `Destroyed` 分支，清理被整段跳过：定时器句柄没清、子系统里还留着这个对象，旧关卡的对象仍可能被回调访问。清理必须与 Reason 无关：把 `ClearTimer`、`Unregister` 提到 `if` 之外无条件执行，`Reason` 只用来打日志或区分业务分支，末尾保留 `Super::EndPlay(Reason)`。如果外部只关心“被 Destroy”，应监听 `OnDestroyed`，不要拿它替代清理。",
+    "explain": "`Destroy` 只是众多结束路径之一，`EndPlay` 才是与 `BeginPlay` 对称、所有正常结束路径都会触发的清理点；`EEndPlayReason` 是上下文信息，不是“要不要清理”的开关。易错点：只在 `Destroyed` 分支里做事，PIE 反复进出或切图后才发现残留。判分点：说出各 Reason 取值、指出分支被跳过、清理无条件执行、保留 `Super::EndPlay`。"
+  },
+  {
+    "id": "ue4-x27",
+    "cat": "ue4",
+    "unit": 27,
+    "unitTitle": "Q27 Component 的生命周期",
+    "type": "code",
+    "diff": 3,
+    "q": "组件在 `OnRegister` 里向子系统订阅回合事件，PIE 反复进出后一次事件会触发多次。请说明原因，并给出两种改法。\n\n```cpp\nUCLASS()\nclass UMyPulseComponent : public UActorComponent\n{\n    GENERATED_BODY()\npublic:\n    UMyPulseComponent()\n    {\n        PrimaryComponentTick.bCanEverTick = true;\n        bWantsInitializeComponent = true;\n    }\n    virtual void OnRegister() override\n    {\n        Super::OnRegister();\n        if (UMyRoundSubsystem* S = GetWorld()->GetSubsystem<UMyRoundSubsystem>())\n        {\n            S->OnRoundStart.AddDynamic(this, &UMyPulseComponent::HandleRound);\n        }\n    }\n    virtual void EndPlay(const EEndPlayReason::Type Reason) override\n    {\n        Super::EndPlay(Reason);      // 只调了 Super，没有解绑\n    }\n    UFUNCTION() void HandleRound();\n};\n```",
+    "ref": "`OnRegister` 不是一次性回调：组件换 World、重新注册、编辑器世界与 PIE 世界切换都会再跑一遍，每跑一次就多一条 `AddDynamic`。多播委托允许同一对象同一函数重复绑定，于是 `HandleRound` 被调用多次；而 `EndPlay` 里只调了 `Super`，一条订阅都没解掉。改法一（推荐）：一次性订阅放 `InitializeComponent`（受 `bWantsInitializeComponent` 控制，通常只执行一次），并在 `EndPlay` 里用同一函数指针 `RemoveDynamic` 对称解绑。改法二：保留 `OnRegister`，同时在 `OnUnregister` 里成对解绑，保证每次注册只保留一份订阅。",
+    "explain": "注册解决“接入哪个 World”，初始化解决“数据是否备好”，拆开就是为了允许组件反复注册而不重复初始化；一次性逻辑放进注册回调里必然叠加。易错点：只在 PIE 里单次运行正常就认为没问题，或忘记 `EndPlay` 解绑。判分点：`OnRegister` 可多次、`AddDynamic` 会重复绑定、`InitializeComponent`/`OnUnregister` 成对、`EndPlay` 需解绑。"
+  },
+  {
+    "id": "ue4-x28",
+    "cat": "ue4",
+    "unit": 28,
+    "unitTitle": "Q28 SpawnActor 内部做了什么、什么时候用 Deferred",
+    "type": "code",
+    "diff": 2,
+    "q": "子弹用 `DontSpawnIfColliding` 生成，偶尔“不出弹”甚至崩溃，日志里没有任何报错。请指出返回空的原因和崩溃点，并给出两处修改。\n\n```cpp\nvoid AMyWeapon::Fire()\n{\n    FActorSpawnParameters Params;\n    Params.Owner = this;\n    Params.SpawnCollisionHandlingOverride =\n        ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;\n\n    AMyProjectile* Proj = GetWorld()->SpawnActor<AMyProjectile>(\n        ProjectileClass, MuzzleLocation, GetActorRotation(), Params);\n\n    Proj->InitVelocity(GetActorForwardVector() * 3000.f);   // 直接解引用\n    Proj->OnHit.AddDynamic(this, &AMyWeapon::HandleHit);\n}\n```",
+    "ref": "`DontSpawnIfColliding` 在生成位置与已有碰撞体重叠时直接返回 `nullptr`，而且不报错，于是表现成“偶尔不出弹”；随后 `Proj->InitVelocity(...)` 解引用空指针，就是崩溃点。两处修改：① 生成后判空——`if (!Proj) { return; }`，需要时打一条 Warning；② 子弹这类高频短命对象把碰撞处理改成 `ESpawnActorCollisionHandlingMethod::AlwaysSpawn`（或 `AdjustIfPossibleButAlwaysSpawn`），跳过这次碰撞查询，避免静默丢失。批量生成还应池化并预先加载好类与资源。",
+    "explain": "`SpawnCollisionHandlingOverride` 决定“生成位置被占用怎么办”：`AlwaysSpawn` 直接生成，`AdjustIfPossibleButAlwaysSpawn` 尝试微调后生成，`DontSpawnIfColliding` 直接返回空。返回值必须判空是硬规则，Deferred 路径的 `FinishSpawning` 同理。易错点：以为生成失败一定会报错。判分点：说明返回空的原因、定位解引用空指针、判空加 `AlwaysSpawn`。"
+  }
+]

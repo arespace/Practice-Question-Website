@@ -1,0 +1,134 @@
+[
+  {
+    "id": "ue5-x29",
+    "cat": "ue5",
+    "unit": 29,
+    "unitTitle": "Q29 C++ 调用蓝图逻辑",
+    "type": "code",
+    "diff": 2,
+    "q": "玩家受击时想把伤害详情交给蓝图子类做飘字，C++ 只声明一个蓝图可实现事件，结果编辑器编译阶段 UHT 直接报错。请说明报错原因，并给出可编译通过的改法：\n\n```cpp\nstruct FHitPayload\n{\n    float Damage = 0.f;\n    FString CauserName;\n};\n\nUCLASS()\nclass AMyTrigger : public AActor\n{\n    GENERATED_BODY()\npublic:\n    UFUNCTION(BlueprintImplementableEvent, Category = \"Trigger\")\n    void OnHit(const FHitPayload& Payload);\n};\n```",
+    "ref": "UHT 报 `Unrecognized type 'FHitPayload' - type must be a UCLASS, USTRUCT or UENUM`。`UFUNCTION` 的每个参数都要按 `UFunction` 的反射布局打包进脚本调用，普通 struct 没有元数据，进不了这张表。改成蓝图可见的 USTRUCT：\n\n```cpp\nUSTRUCT(BlueprintType)\nstruct FHitPayload\n{\n    GENERATED_BODY()\n\n    UPROPERTY(BlueprintReadWrite, Category = \"Hit\")\n    float Damage = 0.f;\n\n    UPROPERTY(BlueprintReadWrite, Category = \"Hit\")\n    FString CauserName;\n};\n```\n\n三件事缺一不可：`USTRUCT(BlueprintType)`、`GENERATED_BODY()`、每个字段的 `UPROPERTY`，并且结构体要定义在 `UCLASS` 之前。`std::string`、裸数组、`TArray<非 USTRUCT>` 同理都过不了 UHT。",
+    "explain": "UHT 扫描头文件时只认 `UCLASS`/`USTRUCT`/`UENUM` 三类反射类型，`BlueprintImplementableEvent` 的参数必须由反射系统描述，才能生成转发桩并安全组包。常见误判是“C++ 语法没问题就该能编译”，实际失败发生在 UHT 阶段，报错常落在生成代码里。判分要点：指出这是 UHT 反射类型限制、给出 `USTRUCT(BlueprintType)`、`GENERATED_BODY()`、字段 `UPROPERTY` 三者，并说明改完不需要给事件本身加“有没有实现”的判断。"
+  },
+  {
+    "id": "ue5-x30",
+    "cat": "ue5",
+    "unit": 30,
+    "unitTitle": "Q30 蓝图调用 C++",
+    "type": "code",
+    "diff": 2,
+    "q": "一扇门对外提供开门，强制关闭只想给门自己和子类使用。按下面写法编译后，UI 蓝图 WBP_HUD 持有 AMyDoor* 引用却搜不到 ForceClose 节点，而门的蓝图子类 BP_Door 里能搜到。原因是什么，若要公开给任意蓝图该怎么改？\n\n```cpp\nUCLASS(Blueprintable)\nclass AMyDoor : public AActor\n{\n    GENERATED_BODY()\npublic:\n    UFUNCTION(BlueprintProtected, BlueprintCallable, Category = \"Door\")\n    void ForceClose();\n\n    UFUNCTION(BlueprintCallable, Category = \"Door\")\n    void TryOpen(AActor* Opener);\n};\n```",
+    "ref": "`BlueprintProtected` 把节点限制在“本类及其子类”的蓝图里调用，判定依据是发起调用的蓝图类，而不是你手里引用变量的类型。WBP_HUD 不是 `AMyDoor` 的子类，所以节点不出现；BP_Door 是子类，能搜到。要对外公开就去掉该标记：\n\n```cpp\nUFUNCTION(BlueprintCallable, Category = \"Door\")\nvoid ForceClose();\n```\n\n若必须保持受限，可另加一个 `BlueprintCallable` 的包装函数，内部校验后转调 `ForceClose`，而不是直接放开权限。另外 C++ 的 `private` 不影响蓝图节点可见性，写在 private 区的 `UFUNCTION(BlueprintCallable)` 蓝图照样能调。",
+    "explain": "`BlueprintProtected` 对应反射标记 `FUNC_Protected`，蓝图编译器生成节点时检查调用者是否为声明类或其子类，所以“有没有节点”取决于谁在调、在哪张图里调。它常被误当成“只有 C++ 能调”或“公开/私有开关”：真正的蓝图可见性由 `BlueprintCallable`/`BlueprintPure` 决定，C++ 访问修饰符不参与。判分要点：说明判定依据是调用者类、给出正确改法、能区分“可见性”与“编译/绑定失败”。"
+  },
+  {
+    "id": "ue5-x31",
+    "cat": "ue5",
+    "unit": 31,
+    "unitTitle": "Q31 NativeEvent 与 ImplementableEvent 的区别",
+    "type": "code",
+    "diff": 3,
+    "q": "下面这组 NativeEvent 声明与实现“编译通过、链接失败”，报 `LNK2019: unresolved external symbol ...ComputeDamage_Implementation`。请指出具体原因，并说明蓝图覆盖后如何让 C++ 默认实现继续生效：\n\n```cpp\n// MyWeapon.h\nUCLASS()\nclass AMyWeapon : public AActor\n{\n    GENERATED_BODY()\npublic:\n    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = \"Damage\")\n    float ComputeDamage(float Base) const;\n\n    virtual float ComputeDamage_Implementation(float Base) const;\n};\n\n// MyWeapon.cpp\nfloat AMyWeapon::ComputeDamage_Impl(float Base) const\n{\n    return Base * 1.5f;\n}\n```",
+    "ref": "cpp 里的名字少了 `ement`：`ComputeDamage_Impl` 是另一个函数，`ComputeDamage_Implementation` 只有声明没有定义。UHT 会为 `BlueprintNativeEvent` 生成转发桩 `ComputeDamage`，桩内部按名字调用 `_Implementation`，所以缺定义就在链接期报 `LNK2019`。改成：\n\n```cpp\nfloat AMyWeapon::ComputeDamage_Implementation(float Base) const\n{\n    return Base * 1.5f;\n}\n```\n\n业务代码一律调声明名 `Weapon->ComputeDamage(10.f)`，这样才走反射分发、蓝图覆盖才生效；蓝图一旦覆盖，默认实现不再自动执行，要保留就在蓝图里显式接 Parent 节点。直接调 `_Implementation` 会绕过分发。",
+    "explain": "UHT 需要两个名字：声明名生成反射入口与脚本分发，`_Implementation` 是 `virtual` 的 C++ 默认逻辑本体，转发桩在 .gen.cpp 里调用它。因此“声明了却没定义”编译器不会报错，只有链接期才暴露；反过来，把默认逻辑写进声明函数体又会和生成代码重定义。另一个易错点是签名差 `const`，同样在链接或 UHT 阶段失败。判分要点：定位到名字拼错、说明转发桩与 `_Implementation` 的调用关系、指出调用应走声明名。"
+  },
+  {
+    "id": "ue5-x32",
+    "cat": "ue5",
+    "unit": 32,
+    "unitTitle": "Q32 把属性安全暴露给蓝图",
+    "type": "code",
+    "diff": 3,
+    "q": "把暴露给蓝图的 `Health` 改名成 `CurrentHealth` 并完整重编后，工程里大量蓝图报 `Unknown property 'Health'`、节点变红。请说明原因，并给出不手改蓝图资产的处理方式（写出关键配置）：\n\n```cpp\nUCLASS()\nclass UMyHealthComponent : public UActorComponent\n{\n    GENERATED_BODY()\npublic:\n    UFUNCTION(BlueprintPure, Category = \"Health\")\n    float GetHealth() const { return CurrentHealth; }\n\nprivate:\n    // 重构前名为 Health，蓝图侧大量引用\n    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = \"Health\",\n              meta = (AllowPrivateAccess = \"true\"))\n    float CurrentHealth = 100.f;\n};\n```",
+    "ref": "蓝图是二进制资产，对 C++ 属性/函数的引用按 `FName` 硬写进节点与类默认值，改名后旧名字查不到，所有引用一起失效。UE 提供 Core Redirects 在加载资产时做名字重定向，在 `Config/DefaultEngine.ini` 加：\n\n```ini\n[CoreRedirects]\n+PropertyRedirects=(OldName=\"/Script/MyGame.UMyHealthComponent.Health\",NewName=\"/Script/MyGame.UMyHealthComponent.CurrentHealth\")\n```\n\n保存后重启编辑器，加载蓝图时旧引用会自动映射到新属性；老项目也可保留 `Health` 作为过渡属性并标 `meta=(DeprecatedProperty, DeprecationMessage=\"use CurrentHealth\")`。改类型同样需要重定向，改函数名则用 `FunctionRedirects`。",
+    "explain": "属性一旦进反射，就被 Details 面板、蓝图节点、序列化和复制四类消费者引用，其中蓝图存的是名字而非 C++ 符号，所以一次改名等于全工程蓝图的破坏性变更。Core Redirects 是工程级兼容层，属于“重构前置动作”而不是事后补救。易错点：只改 C++ 不跑全工程蓝图编译，问题要到别人打开资产才暴露；以及重定向路径写成 `.Health` 而漏了类名。判分要点：指出按名字硬引用、给出 `[CoreRedirects]`/`PropertyRedirects` 写法、说明需重启并重编蓝图。"
+  },
+  {
+    "id": "ue5-x33",
+    "cat": "ue5",
+    "unit": 33,
+    "unitTitle": "Q33 C++ 与蓝图的选型",
+    "type": "code",
+    "diff": 2,
+    "q": "C++ 抽象基类为了省性能关掉了 Tick，蓝图子类 BP_Rifle 在 Event Tick 里做准星散布计算，但该节点从不执行、日志也没有，也没有任何报错。请解释原因并给出正确写法：\n\n```cpp\nUCLASS(Abstract, Blueprintable)\nclass AWeaponBase : public AActor\n{\n    GENERATED_BODY()\npublic:\n    AWeaponBase()\n    {\n        PrimaryActorTick.bCanEverTick = false;\n        PrimaryActorTick.bStartWithTickEnabled = false;\n    }\n\n    UFUNCTION(BlueprintNativeEvent, Category = \"Weapon\")\n    void OnFired();\n    virtual void OnFired_Implementation() {}\n};\n```",
+    "ref": "`bCanEverTick = false` 是“该类永远不注册 Tick”，对 C++ 和所有子类（含蓝图）一视同仁，蓝图里的 Event Tick 因此不会被执行，也不会有任何报错。改成允许 Tick、但默认不开启：\n\n```cpp\nPrimaryActorTick.bCanEverTick = true;\nPrimaryActorTick.bStartWithTickEnabled = false;\n```\n\n再在蓝图子类的 Class Defaults 里勾选 Start with Tick Enabled，或运行时 `SetActorTickEnabled(true)`。设计上仍应把高频计算留在 C++，用定时器或事件驱动，蓝图 Tick 只做表现。",
+    "explain": "Tick 是否可能发生由 `PrimaryActorTick.bCanEverTick` 决定，它是类级硬开关，蓝图无法绕过；`bStartWithTickEnabled` 只决定初始是否启用，两者常被混为一谈。这个坑多出现在“给基类省性能”的优化里：C++ 关掉 Tick 后，蓝图子类的 Tick 图静默失效，排查时容易误判为节点没连或蓝图没编译。判分要点：区分两个开关、给出 `bCanEverTick = true` 加默认不启动的写法、说明蓝图可在类默认值里开启。"
+  },
+  {
+    "id": "ue5-x34",
+    "cat": "ue5",
+    "unit": 34,
+    "unitTitle": "Q34 蓝图之间的通信方式",
+    "type": "code",
+    "diff": 3,
+    "q": "服务器扣血后广播动态多播，客户端血条蓝图在 BeginPlay 里 Bind Event 到 OnHealthChanged，但客户端血条一直不动。在下面代码的前提下，请说明原因并给出两种修法：\n\n```cpp\nDECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHealthChanged, float, NewHealth, float, Delta);\n\nUCLASS()\nclass AMyHealthActor : public AActor\n{\n    GENERATED_BODY()\npublic:\n    UPROPERTY(BlueprintAssignable, Category = \"Health\")\n    FOnHealthChanged OnHealthChanged;\n\n    void ApplyDamage(float Amount)\n    {\n        Health = FMath::Max(0.f, Health - Amount);\n        OnHealthChanged.Broadcast(Health, -Amount);\n    }\n\nprivate:\n    UPROPERTY(Replicated)\n    float Health = 100.f;\n};\n```",
+    "ref": "委托属性不参与网络复制，`Broadcast` 也只在调用它的那台机器上执行：服务器扣血并广播，客户端既收不到这次广播，也不会自己再广播一次，绑定在客户端的血条就永远不更新。两种修法：\n\n1) 状态复制 + 客户端广播：`UPROPERTY(ReplicatedUsing = OnRep_Health) float Health;`，在 `OnRep_Health` 里执行 `OnHealthChanged.Broadcast(Health, Health - OldHealth);`（`OnRep` 会在客户端跑），并在 BeginPlay 补一次初始广播。\n2) 客户端 RPC：`UFUNCTION(Client, Reliable) void ClientNotifyHealth(float NewHealth, float Delta);`，服务器扣血后逐客户端调用，由客户端本地广播。\n\n判定要点：指出委托不复制、广播只在本机生效，修法必须让广播发生在客户端。",
+    "explain": "Event Dispatcher 就是本地动态多播，它和属性复制是两套机制：复制同步属性与 RPC，委托只是一张本机回调表。服务器广播时客户端那张表根本没被调用，所以现象是“数值变了但 UI 不动”。易错点：只加 `Replicated` 不加 `ReplicatedUsing`，客户端值到了却没人通知；以及 BeginPlay 时客户端还没有初始同步，需要主动广播一次。判分要点：结论正确 + 任一可行修法 + 广播位置落在客户端。"
+  },
+  {
+    "id": "ue6-x35",
+    "cat": "ue6",
+    "unit": 35,
+    "unitTitle": "Q35 单播、多播与动态委托的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "把死亡通知改成原生多播后，为了能在蓝图里绑定，给成员加了 `UPROPERTY(BlueprintAssignable)`，结果 UHT 直接报错。请说明报错原因，并给出既保留 C++ 用法又能给蓝图绑定的写法：\n\n```cpp\nDECLARE_MULTICAST_DELEGATE_OneParam(FOnDied, AActor*);\n\nUCLASS()\nclass UMyHealthComponent : public UActorComponent\n{\n    GENERATED_BODY()\npublic:\n    UPROPERTY(BlueprintAssignable, Category = \"Health\")\n    FOnDied OnDied;\n};\n```",
+    "ref": "UHT 报 `Unrecognized type 'FOnDied' - type must be a UCLASS, USTRUCT or UENUM`。原生委托是编译期模板，不在反射系统里，既不能写 `UPROPERTY`，也不能被蓝图绑定；`BlueprintAssignable` 只对动态多播有意义。要给蓝图用就改成动态多播：\n\n```cpp\nDECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDied, AActor*, Killer);\n\nUCLASS()\nclass UMyHealthComponent : public UActorComponent\n{\n    GENERATED_BODY()\npublic:\n    UPROPERTY(BlueprintAssignable, Category = \"Health\")\n    FOnDied OnDied;\n};\n```\n\nC++ 侧改用 `OnDied.AddDynamic(this, &UMyHUD::HandleDied)`，回调必须标 `UFUNCTION()`。若只有 C++ 消费，去掉 `UPROPERTY` 保留原生多播即可，不必为“以后可能给蓝图”付反射成本。",
+    "explain": "原生 `TMulticastDelegate` 只是模板：没有 `UFunction` 元数据、没有对象弱引用加函数名的槽位结构，所以既无法序列化也无法进蓝图，UHT 在第一层类型识别时就失败。动态多播把绑定关系注册进反射表，才能被 `UPROPERTY` 描述并显示成 Event Dispatcher。判分要点：说出原生委托不可反射、给出 `DECLARE_DYNAMIC_MULTICAST_DELEGATE_*`、指出 `AddDynamic` 目标必须是 `UFUNCTION`。"
+  },
+  {
+    "id": "ue6-x36",
+    "cat": "ue6",
+    "unit": 36,
+    "unitTitle": "Q36 动态委托的底层原理",
+    "type": "code",
+    "diff": 3,
+    "q": "加载器在后台线程算完进度后直接广播动态多播，蓝图侧已经绑好进度条。运行中出现偶发崩溃与断言。请指出这段代码中确定性的线程问题，并写出正确的通知方式：\n\n```cpp\nUCLASS()\nclass UMyLoader : public UObject\n{\n    GENERATED_BODY()\npublic:\n    UPROPERTY(BlueprintAssignable, Category = \"Load\")\n    FOnProgress OnProgress;\n\n    void StartLoad()\n    {\n        Async(EAsyncExecution::Thread, [this]()\n        {\n            DoHeavyWork();\n            OnProgress.Broadcast(1.f);   // 蓝图侧已 Bind\n        });\n    }\n};\n```",
+    "ref": "这条链路的每一步都要求游戏线程：动态多播广播要先 `FindFunction` 查 `UFunction`，再 `ProcessEvent`，蓝图目标还要进虚拟机；UObject 属性访问与 GC 同样不允许跨线程。在 `EAsyncExecution::Thread` 的 lambda 里广播属于未定义行为，崩不崩取决于时机。正确做法是 marshal 回游戏线程，并用弱引用判活：\n\n```cpp\nTWeakObjectPtr<UMyLoader> WeakThis(this);\nAsync(EAsyncExecution::Thread, [WeakThis]()\n{\n    DoHeavyWork();\n    AsyncTask(ENamedThreads::GameThread, [WeakThis]()\n    {\n        if (UMyLoader* Self = WeakThis.Get())\n        {\n            Self->OnProgress.Broadcast(1.f);\n        }\n    });\n});\n```\n\n频率更高的进度可以只写原子变量，让 UI 在游戏线程轮询。",
+    "explain": "动态委托的成本正来自反射：查表、按布局组包、`ProcessEvent`，而反射与蓝图 VM 都限定在游戏线程。跨线程广播不是“偶尔漏一次通知”，而是数据竞争、断言与随机崩溃，属于未定义行为。另一个易错点：只把广播挪回游戏线程但仍捕获裸 `this`，对象可能已被 GC。判分要点：指出游戏线程约束、给出 `AsyncTask(ENamedThreads::GameThread, ...)` 或 `FFunctionGraphTask`、提到弱引用判活。"
+  },
+  {
+    "id": "ue6-x37",
+    "cat": "ue6",
+    "unit": 37,
+    "unitTitle": "Q37 各 Add 绑定 API 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "HUD 的绑定函数在 BeginPlay 和“刷新”按钮里都会被调用一次，血量变化时伤害数字弹了两下。请说明原因，并给出两种让绑定幂等的写法：\n\n```cpp\nvoid UMyHUD::BindToHealth(UMyHealthComponent* Comp)\n{\n    Comp->OnHealthChanged.AddDynamic(this, &UMyHUD::HandleHealthChanged);\n}\n\nvoid UMyHUD::BeginPlay()\n{\n    Super::BeginPlay();\n    BindToHealth(HealthComp);\n    BindToHealth(HealthComp);\n}\n\nUFUNCTION()\nvoid UMyHUD::HandleHealthChanged(float NewHealth, float Delta)\n{\n    DamagePopup(Delta);\n}\n```",
+    "ref": "`AddDynamic` 不做去重：同一对象、同一 `UFUNCTION` 添加两次就是两个槽位，一次 `Broadcast` 会回调两次，所以伤害数字弹两下。两种幂等写法：\n\n1) 用 `AddUniqueDynamic`，已存在同一 (对象, 函数) 槽位时不会再添加：\n\n```cpp\nComp->OnHealthChanged.AddUniqueDynamic(this, &UMyHUD::HandleHealthChanged);\n```\n\n2) 先移除再添加，`RemoveDynamic` 的签名必须与添加时完全一致：\n\n```cpp\nComp->OnHealthChanged.RemoveDynamic(this, &UMyHUD::HandleHealthChanged);\nComp->OnHealthChanged.AddDynamic(this, &UMyHUD::HandleHealthChanged);\n```\n\n也可以保存返回的 `FDelegateHandle`，在 `EndPlay` 里精确 `Remove`；绑定与解绑必须成对。",
+    "explain": "多播内部是一张槽位列表，`Add*` 系列只负责追加，是否允许重复由具体 API 决定：`AddDynamic` 允许（所以会出现重复回调），`AddUniqueDynamic` 会按 (UserObject, 函数名) 去重。这个问题最常出现在“界面重开”“刷新按钮”“无缝旅行后重建”这些路径上，表现为数值翻倍而不是崩溃，很难从业务逻辑里看出来。判分要点：定位到重复绑定、给出 `AddUniqueDynamic` 或先 `RemoveDynamic` 的改法、提到 handle 精确移除。"
+  },
+  {
+    "id": "ue6-x38",
+    "cat": "ue6",
+    "unit": 38,
+    "unitTitle": "Q38 多播的顺序与返回值",
+    "type": "code",
+    "diff": 3,
+    "q": "血量归零时想让监听者再收到一次“归零”通知，于是在回调里又广播了同一个多播。结果界面重复弹窗，严重时编辑器卡死。请说明原因，并给出安全改法：\n\n```cpp\nvoid UMyHUD::HandleHealthChanged(float NewHealth, float Delta)\n{\n    ShowDamagePopup(Delta);\n    if (NewHealth <= 0.f)\n    {\n        // 想在归零时再通知一次\n        OwnedComp->OnHealthChanged.Broadcast(0.f, 0.f);\n    }\n}\n\nvoid UMyHealthComponent::ApplyDamage(float Amount)\n{\n    Health = FMath::Max(0.f, Health - Amount);\n    OnHealthChanged.Broadcast(Health, -Amount);\n}\n```",
+    "ref": "这是重入：`Broadcast` 在遍历槽位时同步调用监听者，监听者又对同一个多播 `Broadcast`，于是从头再遍历一遍，自己也被再调一次；归零条件仍然成立，就一路递归到栈溢出或编辑器无响应。表现上第一层重入就足以让弹窗出现两次。安全改法：\n\n1) 用独立事件表达不同语义：`OnHealthChanged` 只报数值变化，归零用另一个 `OnDied` 多播，绝不在回调里重播同一事件。\n2) 必须重播时加守卫并延后到本轮结束：\n\n```cpp\nif (bInBroadcast) { bPendingZero = true; return; }\nbInBroadcast = true;\nOnHealthChanged.Broadcast(Health, -Amount);\nbInBroadcast = false;\nif (bPendingZero) { bPendingZero = false; OnHealthChanged.Broadcast(0.f, 0.f); }\n```\n\n判定要点：识别重入、说明会递归、给出拆事件或守卫加延迟的改法。",
+    "explain": "多播只保证“每个有效槽位被调用一次”，没有任何防重入保护，递归广播完全由调用方负责；这与“回调里增删槽位”的迭代安全是两个问题，后者也只应记录意图、本轮结束后统一落地。真实坑里的“回调里再次 Broadcast 导致重复弹窗、重复扣费”就是这一条。判分要点：点名重入与递归、指出同一批监听者会被重复调用、给出可落地的拆事件或守卫方案。"
+  },
+  {
+    "id": "ue6-x39",
+    "cat": "ue6",
+    "unit": 39,
+    "unitTitle": "Q39 委托的生命周期与解绑",
+    "type": "code",
+    "diff": 3,
+    "q": "组件在 BeginPlay 订阅了 GameState 的委托，解绑却写在 BeginDestroy 里。切关卡和 PIE 停止时出现偶发崩溃与残留回调。请指出问题，并给出正确的清理位置与写法：\n\n```cpp\nvoid UMyListenerComponent::BeginPlay()\n{\n    Super::BeginPlay();\n    if (AMyGameState* GS = GetWorld()->GetGameState<AMyGameState>())\n    {\n        GS->OnWaveStarted.AddDynamic(this, &UMyListenerComponent::HandleWaveStarted);\n    }\n}\n\nvoid UMyListenerComponent::BeginDestroy()\n{\n    if (AMyGameState* GS = GetWorld()->GetGameState<AMyGameState>())\n    {\n        GS->OnWaveStarted.RemoveDynamic(this, &UMyListenerComponent::HandleWaveStarted);\n    }\n    Super::BeginDestroy();\n}\n```",
+    "ref": "`BeginDestroy` 由 GC 触发，时机不确定：此时 `GetWorld()` 可能已为空，GameState 也可能先被销毁，`RemoveDynamic` 会走到空指针或静默失败留下槽位；而且它晚于玩法生命周期，回调可能在“半销毁”状态下仍被执行。清理应放在 `EndPlay`：\n\n```cpp\nvoid UMyListenerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)\n{\n    if (UWorld* World = GetWorld())\n    {\n        World->GetTimerManager().ClearAllTimersForObject(this);\n    }\n    if (AMyGameState* GS = GetWorld() ? GetWorld()->GetGameState<AMyGameState>() : nullptr)\n    {\n        GS->OnWaveStarted.RemoveDynamic(this, &UMyListenerComponent::HandleWaveStarted);\n    }\n    OnWaveStartedLocal.Clear();\n    Super::EndPlay(EndPlayReason);\n}\n```\n\n判定要点：位置改为 `EndPlay`、先判空 World/GameState、定时器一起清、`RemoveDynamic` 签名与添加时一致。",
+    "explain": "UObject 的销毁由 GC 决定，`BeginDestroy` 时其他对象可能已进入半销毁状态，跨对象解绑容易访问失效内存；`EndPlay` 在关卡结束或对象销毁前、World 仍有效时调用，是最可控的清理点。另一个易错点：`RemoveDynamic` 用的函数与添加时不一致时移除会静默失败，槽位还在，表现为“界面关了还在收事件”。判分要点：指出 GC 时机与位置错误、给出 `EndPlay` 版本、提到定时器与签名一致性。"
+  },
+  {
+    "id": "ue6-x40",
+    "cat": "ue6",
+    "unit": 40,
+    "unitTitle": "Q40 委托、接口与直接调用的选型",
+    "type": "code",
+    "diff": 2,
+    "q": "代码里门已经有 OnOpened 多播供任务、音效订阅，但开门命令仍是直接调用。有人在 review 时建议把它也改成动态多播以便“解耦”。请判断该建议是否合理，并结合代码给出选型结论：\n\n```cpp\nvoid AMyPlayerController::TryInteract(AActor* HitActor)\n{\n    if (AMyDoor* Door = Cast<AMyDoor>(HitActor))\n    {\n        Door->TryOpen(this);   // 同模块，调用方明确持有 AMyDoor*\n    }\n}\n\nvoid AMyDoor::TryOpen(AActor* Opener)\n{\n    bOpened = true;\n    OnOpened.Broadcast(Opener);   // 已有多播，供任务/音效/成就订阅\n}\n```",
+    "ref": "不建议改。这里的关系是“同模块、调用方明确持有 `AMyDoor*`、需要同步立刻执行开门”，直接调用是最优解：编译期就能查错、调用栈最好读、没有绑定表和解绑负担。改成动态多播会付出三个确定代价：每台机器都要注册与清理槽位、广播顺序不保证、每次调用多一层查表与 `ProcessEvent`（蓝图目标再进 VM）；语义还会从“让它开门”退化成“广播一件事”，没人监听时门就不开了。\n\n正确分层是保留 `Door->TryOpen(this)` 作为命令路径，`OnOpened` 继续承担一对多通知；只有当调用方不该知道具体类型时才换成接口。",
+    "explain": "选型看四个问题：是否一对多、是否需要返回值、是否要给蓝图、调用方能否持有具体类型。本例一对一、同步、同模块，四条都指向直接调用；直接调用的真正代价是跨模块硬依赖，本例不成立。常见误区是把“解耦”当唯一目标，把命令当事件广播，于是出现“没人订阅就不执行”“顺序与返回值不可控”。判分要点：结论明确反对改、给出直接调用的收益、指出委托的语义与代价，并能说明事件（`OnOpened`）与命令（`TryOpen`）的分工。"
+  }
+]

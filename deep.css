@@ -1,0 +1,495 @@
+/* 深读页样式：目录 + 单元正文 + 宽表/长代码横向滚动 */
+
+.deep-stage { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+
+.deep-crumb {
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deep-crumb b { color: var(--text-dim); font-weight: 600; }
+
+/* ---------------- 左侧目录 ---------------- */
+.deep-toc-block { flex: 1; min-height: 0; }
+.deep-toc {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 4px;
+}
+.deep-ch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: 0.16s;
+}
+.deep-ch:hover { background: var(--accent-soft); color: var(--text); }
+.deep-ch.active { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--text); }
+.deep-ch-no {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 6px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.deep-ch.cpp .deep-ch-no { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 36%, transparent); }
+.deep-ch.ue .deep-ch-no { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 36%, transparent); }
+.deep-ch-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deep-ch-cnt { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+
+.deep-units { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 6px 10px; }
+.deep-unit {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: 0.14s;
+}
+.deep-unit:hover { background: var(--bg-soft); color: var(--text); }
+.deep-unit.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text); }
+.deep-unit-no { flex: none; font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+.deep-unit-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 搜索结果 */
+.deep-results { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.deep-res-item {
+  display: block;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  text-align: left;
+  cursor: pointer;
+  transition: 0.14s;
+}
+.deep-res-item:hover { border-color: var(--accent); color: var(--text); }
+.deep-res-title { display: block; font-size: 12px; color: var(--text); font-weight: 600; }
+.deep-res-meta { display: block; margin-top: 3px; font-size: 10.5px; color: var(--text-faint); }
+.deep-res-one { display: block; margin-top: 3px; font-size: 11px; color: var(--text-faint); line-height: 1.55; }
+.deep-res-empty { padding: 14px 8px; font-size: 11.5px; color: var(--text-faint); line-height: 1.7; }
+.deep-res-empty button { margin-top: 8px; }
+
+.deep-foot { flex-direction: column; gap: 4px; font-size: 10.5px; color: var(--text-faint); line-height: 1.6; }
+
+/* ---------------- 正文 ---------------- */
+.deep-article {
+  min-width: 0;
+  overflow-x: clip; /* 宽表/长代码在各自容器内滚动，避免把整页撑宽 */
+  padding: 30px 32px 26px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: linear-gradient(160deg,
+    color-mix(in srgb, var(--panel-solid) 94%, transparent),
+    color-mix(in srgb, var(--panel-solid) 82%, transparent));
+  box-shadow: var(--shadow-soft);
+  animation: deepFade 0.24s ease;
+}
+@keyframes deepFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.deep-kicker {
+  font-size: 10.5px;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.deep-title {
+  margin: 0 0 10px;
+  font-size: 25px;
+  line-height: 1.35;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--text);
+}
+.deep-oneline {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  background: var(--accent-soft);
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--text-dim);
+}
+.deep-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 6px; }
+.deep-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 23px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.deep-chip.cpp { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 38%, transparent); }
+.deep-chip.ue { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 38%, transparent); }
+
+.deep-body { margin-top: 20px; font-size: 14px; line-height: 1.85; color: var(--text-dim); }
+.deep-body h2, .deep-body h3, .deep-body h4 {
+  margin: 24px 0 10px;
+  color: var(--text);
+  line-height: 1.45;
+}
+.deep-body h3 { font-size: 17px; }
+.deep-body h4 { font-size: 14.5px; }
+.deep-body p { margin: 0 0 12px; }
+.deep-body strong { color: var(--text); font-weight: 650; }
+.deep-body ul, .deep-body ol { margin: 0 0 13px; padding-left: 22px; }
+.deep-body li { margin-bottom: 5px; }
+.deep-body li > ul, .deep-body li > ol { margin: 5px 0 0; }
+.deep-body hr { margin: 20px 0; border: 0; border-top: 1px dashed var(--border); }
+.deep-body blockquote {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--border-strong);
+  border-radius: 0 9px 9px 0;
+  background: var(--bg-soft);
+  color: var(--text-faint);
+  font-size: 12.5px;
+}
+.deep-body blockquote p:last-child { margin-bottom: 0; }
+.deep-body a { color: var(--accent); text-decoration: none; border-bottom: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); }
+.deep-body a:hover { border-bottom-style: solid; }
+.deep-body code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  padding: 1.5px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+
+/* 代码块：统一横向滚动，长行不撑破布局 */
+.deep-body pre.md-pre {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border-radius: 11px;
+  background: #0a0e16;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+[data-theme="light"] .deep-body pre.md-pre { background: #0f1726; }
+.deep-body pre.md-pre code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  padding: 0;
+  background: none;
+  color: #d7e2f5;
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre;
+}
+
+/* 表格：外层滚动，避免宽表挤压正文 */
+.md-table-wrap {
+  margin: 0 0 14px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.md-table { width: 100%; min-width: 460px; border-collapse: collapse; font-size: 12.5px; }
+.md-table th, .md-table td { padding: 8px 11px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; vertical-align: top; line-height: 1.65; }
+.md-table th:last-child, .md-table td:last-child { border-right: 0; }
+.md-table tbody tr:last-child td { border-bottom: 0; }
+.md-table th { background: var(--accent-soft); color: var(--text); font-weight: 600; white-space: nowrap; }
+.md-table td { color: var(--text-dim); }
+
+/* 底部动作 */
+.deep-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--border);
+}
+.deep-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  font-size: 12.5px;
+  text-decoration: none;
+  transition: 0.16s;
+}
+.deep-actions a:hover { color: var(--text); border-color: var(--accent); }
+.deep-actions a.primary {
+  background: linear-gradient(135deg, var(--accent), #8a6cff);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+.deep-actions a.primary:hover { filter: brightness(1.06); }
+
+/* 章节概览的单元网格 */
+.deep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 9px; margin-top: 18px; }
+.deep-grid a {
+  display: block;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 12.5px;
+  line-height: 1.55;
+  transition: 0.15s;
+}
+.deep-grid a:hover { border-color: var(--accent); color: var(--text); transform: translateY(-1px); }
+.deep-grid a span { display: block; font-family: var(--mono); font-size: 10px; color: var(--text-faint); margin-bottom: 4px; }
+
+@media (max-width: 960px) {
+  .deep-article { padding: 22px 18px 20px; border-radius: 16px; }
+  .deep-title { font-size: 21px; }
+  .deep-body { font-size: 13.5px; }
+}
+
+@media (max-width: 520px) {
+  .deep-article { padding: 18px 14px 16px; }
+  .deep-title { font-size: 19px; }
+  .deep-oneline { padding: 10px 11px; font-size: 12.5px; }
+  .deep-actions a { flex: 1; justify-content: center; }
+  .md-table { min-width: 400px; }
+}
+
+/* ================= UI 迭代：目录双热区 / 跳读条 / 折叠 / 搜索 ================= */
+
+/* 正文列宽收到 840px，长文更易读 */
+.deep-page .layout { grid-template-columns: 268px minmax(0, 840px); }
+
+/* 目录行：章名=展开/收起，行尾「↗」=章节概览 */
+.deep-ch-row { display: flex; align-items: center; gap: 2px; }
+.deep-ch-row > .deep-ch { flex: 1; min-width: 0; }
+.deep-ch-ov {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: 0.14s;
+}
+.deep-ch-row:hover .deep-ch-ov,
+.deep-ch-row.active .deep-ch-ov { opacity: 1; }
+.deep-ch-ov:hover { color: var(--text); border-color: var(--border); background: var(--bg-soft); }
+
+/* 面包屑：窄屏变成「章 / 单元选择器」 */
+.deep-crumb {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-faint);
+  text-align: left;
+  cursor: default;
+  max-width: 100%;
+}
+
+/* 五段跳读条：吸附在正文卡片顶部，滚出卡片即消失 */
+.deep-jump {
+  position: sticky;
+  top: 64px;
+  z-index: 8;
+  display: flex;
+  gap: 6px;
+  margin: 14px -4px 2px;
+  padding: 6px 4px;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--panel-solid) 92%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px dashed var(--border);
+  scrollbar-width: none;
+}
+.deep-jump::-webkit-scrollbar { display: none; }
+.deep-jump-chip {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: 0.14s;
+}
+.deep-jump-chip:hover { border-color: var(--accent); color: var(--text); }
+
+/* 上下单元：显示目标标题 */
+.deep-stage .nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 46%;
+  overflow: hidden;
+}
+.nav-btn .nav-lbl { flex: none; }
+.nav-btn .nav-t {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 代码块：≥24 行限高折叠 + 复制 */
+.code-block { position: relative; margin: 0 0 14px; }
+.code-block pre.md-pre { margin: 0; }
+.code-block pre.is-foldable { max-height: 382px; overflow-y: auto; }
+.code-block.expanded pre.is-foldable { max-height: none; }
+.code-tools { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 6px; }
+.code-tools button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--text-faint);
+  font-size: 11px;
+  cursor: pointer;
+  transition: 0.14s;
+}
+.code-tools button:hover { color: var(--text); border-color: var(--accent); }
+.code-block:not(.expanded)::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 38px;
+  border-radius: 0 0 11px 11px;
+  background: linear-gradient(to bottom, transparent, #0a0e16);
+  pointer-events: none;
+}
+[data-theme="light"] .code-block:not(.expanded)::after {
+  background: linear-gradient(to bottom, transparent, #0f1726);
+}
+
+/* 表格：首列固定 + 右缘渐隐提示 */
+.md-table-box { position: relative; }
+.md-table-box.has-overflow::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 30px;
+  border-radius: 0 10px 10px 0;
+  background: linear-gradient(to left, var(--panel-solid), transparent);
+  pointer-events: none;
+}
+.md-table th:first-child,
+.md-table td:first-child { position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--border); }
+.md-table th:first-child { background: color-mix(in srgb, var(--accent) 10%, var(--panel-solid)); }
+.md-table td:first-child { background: var(--panel-solid); }
+
+/* 搜索结果：总数、按章分组、命中词高亮 */
+.deep-res-head { padding: 4px 4px 8px; font-size: 10.5px; color: var(--text-faint); letter-spacing: 0.4px; }
+.deep-res-ch {
+  padding: 8px 4px 3px;
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+}
+.deep-results mark {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text);
+}
+
+/* 移动端：header 搜索入口 + 面包屑变选择器 */
+.deep-search-btn { display: none; }
+@media (max-width: 1080px) {
+  .deep-page .layout { grid-template-columns: 236px minmax(0, 840px); }
+}
+@media (max-width: 960px) {
+  .deep-page .layout { grid-template-columns: minmax(0, 1fr); }
+  .deep-search-btn { display: inline-grid; }
+  .deep-crumb {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-soft);
+    cursor: pointer;
+    font-size: 11.5px;
+  }
+  .deep-crumb::after { content: '▾'; font-size: 10px; color: var(--text-faint); }
+  .deep-jump { top: 64px; margin-left: -18px; margin-right: -18px; padding-left: 18px; padding-right: 18px; }
+}
+@media (max-width: 520px) {
+  .deep-jump { margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px; }
+  .nav-btn .nav-lbl { display: none; }
+  .deep-stage .nav-btn { max-width: 44%; }
+}
+
+/* 面试频次：侧栏筛选 + 单元徽标 */
+.deep-prio-block .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.deep-prio-hint { margin: 8px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--text-faint); }
+.deep-unit-p {
+  flex: none;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.3;
+  color: var(--text-faint);
+}
+.deep-unit-p.p0 { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 42%, transparent); }
+.deep-unit-p.p1 { color: var(--mid); border-color: color-mix(in srgb, var(--mid) 42%, transparent); }
+.deep-chip.prio-p0 { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
+.deep-chip.prio-p1 { color: var(--mid); border-color: color-mix(in srgb, var(--mid) 42%, transparent); }
+.deep-chip.prio-p2 { color: var(--text-faint); }

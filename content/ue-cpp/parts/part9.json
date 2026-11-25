@@ -1,0 +1,405 @@
+[
+  {
+    "id": "ue9-001",
+    "cat": "ue9",
+    "unit": 56,
+    "unitTitle": "Q56 UE 的模块怎么划分？",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 UE 的模块划分与依赖声明，下列说法正确的有？（多选）",
+    "options": [
+      "一个模块对应一个 `Build.cs`，`Public/` 放对外头文件、`Private/` 放实现与内部头文件",
+      "只在本模块 cpp 里用到的依赖，写进 `PublicDependencyModuleNames` 可以减少下游的重编",
+      "模块依赖图必须是 DAG；出现循环时 UBT 直接拒绝，破环办法是把公共部分下沉成第三个模块",
+      "模块切得越细越解耦，所以应该尽量按文件夹把模块拆小",
+      "Runtime 模块可以依赖 Editor 模块，只要编辑器里编译和运行正常"
+    ],
+    "answer": [0, 2],
+    "explain": "模块由 `Build.cs` 定义，目录只是摆放位置；写进 Public 的依赖会把 include 路径和重编范围一起传染给下游，只在本模块 cpp 用到的必须放 Private，所以第 2 项错。依赖成环时 UBT 直接拒绝，只能把公共部分下沉；模块是 DLL 与编译边界，切太细会抬高跨边界调用与链接成本，Runtime 依赖 Editor 在打包时 Editor 模块不存在会直接失败。",
+    "src": "深读.md#ue-unit-56"
+  },
+  {
+    "id": "ue9-002",
+    "cat": "ue9",
+    "unit": 56,
+    "unitTitle": "Q56 UE 的模块怎么划分？",
+    "type": "code",
+    "diff": 2,
+    "q": "下面是新建模块 `MyCombat` 的构建脚本与对外头文件，有两处违反原文的模块规则，请指出并改正：\n\n// MyCombat.Build.cs\npublic class MyCombat : ModuleRules\n{\n    public MyCombat(ReadOnlyTargetRules Target) : base(Target)\n    {\n        PrivateDependencyModuleNames.AddRange(new string[] { \"Core\", \"CoreUObject\", \"Engine\" });\n    }\n}\n\n// MyCombat/Public/MyDamageType.h\n#pragma once\n#include \"CoreMinimal.h\"\n#include \"MyCombat/Private/MyDamageTypeInternal.h\"\n#include \"MyDamageType.generated.h\"",
+    "ref": "① `Core`/`CoreUObject`/`Engine` 被写进了 `PrivateDependencyModuleNames`，但这个模块的公共头暴露了 `UCLASS` 且派生自 `UObject`，下游 include 时拿不到这些模块的 include 路径，应改放进 `PublicDependencyModuleNames`。② `Public/` 里的头 include 了 `Private/` 的头，本模块能编、下游 include 时找不到文件；规则是 `Public/` 的头只能 include 其他模块的 `Public/` 或自己的 `Public/`。`generated.h` 放在最后一个 include 是对的。",
+    "explain": "模块边界有两个方向：Public 依赖把 include 路径与重编范围传给下游，Private 依赖只在本模块 cpp 可见；Public 头里一旦出现内部类型，私有实现就变成事实 API。原文真实坑之二正是“Public 头 include Private 头”：本模块能编、下游 include 就找不到文件，验证要在下游模块上编一次。",
+    "src": "深读.md#ue-unit-56"
+  },
+  {
+    "id": "ue9-003",
+    "cat": "ue9",
+    "unit": 57,
+    "unitTitle": "Q57 什么是 IWYU？为什么能加快编译？",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 IWYU 与前置声明，下列说法正确的是？",
+    "options": [
+      "前置声明可以替代所有 include，只要本机能编译通过就没有风险",
+      "继承基类、按值成员、模板实参、`sizeof`、调用成员函数这些场合都必须有完整定义",
+      "用了 PCH 之后，源文件就不必写全自己直接依赖的 include",
+      "`Xxx.generated.h` 越靠前越好，放在 `CoreMinimal.h` 之后最稳妥",
+      "把 `Engine.h` 删掉就等于完成了 IWYU 改造"
+    ],
+    "answer": [1],
+    "explain": "前置声明只引入名字、不引入定义，一旦需要布局、基类或调用成员函数就必须完整定义。PCH 只是预编译公共前缀，不替代源文件写全依赖；`generated.h` 必须是最后一个 include，放前面会让生成代码引用的名字还不存在；删聚合头只是最大的一处清理，真正的要求是每个文件对自己直接用到的类型负责。",
+    "src": "深读.md#ue-unit-57"
+  },
+  {
+    "id": "ue9-004",
+    "cat": "ue9",
+    "unit": 57,
+    "unitTitle": "Q57 什么是 IWYU？为什么能加快编译？",
+    "type": "fill",
+    "diff": 2,
+    "q": "`#include` 的本质是____：一个头文件被 N 个翻译单元包含就要解析 N 次，改它就要重编 N 次；include guard 只在同一个翻译单元内避免重复展开，跨翻译单元的成本一分都省不掉。",
+    "answer": ["文本展开", "文本替换", "文本级展开"],
+    "explain": "编译时间约等于所有翻译单元展开的头文件总量，聚合头把上千个类型塞进每个 cpp，所以“少 include”直接乘在编译时间上。include guard 与 `#pragma once` 只防同一翻译单元内的重复展开；要缩小成本得靠前置声明切断定义依赖、把 include 从 `.h` 挪到 `.cpp`。",
+    "src": "深读.md#ue-unit-57"
+  },
+  {
+    "id": "ue9-005",
+    "cat": "ue9",
+    "unit": 58,
+    "unitTitle": "Q58 编译时间太长怎么优化？",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于编译时间优化手段与场景的对应关系，下列说法正确的有？（多选）",
+    "options": [
+      "日常增量编译慢：用 IWYU + 前置声明，把实现从公共头移到 cpp",
+      "全量构建慢：打开 Unity Build / 共享 PCH，并确认并行度",
+      "小改逻辑想秒级生效：用 Live Coding，前提是不改反射结构",
+      "模板导致的慢：只要删掉聚合头即可，与模板实例化无关",
+      "想找最慢的模块：凭经验猜即可，UBT 的 Timing 统计没有参考价值"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "原文把编译成本拆成头文件解析、模板实例化、重复编译、并行度四块，各用各的手段：解析靠 IWYU，模板靠收敛实现与显式实例化，重复编译靠 PCH/Unity，并行度靠模块拆分。模板在头文件里每个使用方各实例化一份，删聚合头解决不了它；找最慢模块要先用 Timing 统计配合构建日志排序，不能凭感觉。",
+    "src": "深读.md#ue-unit-58"
+  },
+  {
+    "id": "ue9-006",
+    "cat": "ue9",
+    "unit": 58,
+    "unitTitle": "Q58 编译时间太长怎么优化？",
+    "type": "code",
+    "diff": 3,
+    "q": "下面这段公共头会让编译时间出现什么问题？请给出正确写法，并说明为什么 `inline` 不能解决：\n\n// MyMath.h\ninline float HeavySolve(const TArray<FVector>& Points)\n{\n    // 几十行逻辑\n    return 0.f;\n}\n\n// MyGame.Build.cs\nPublicDependencyModuleNames.AddRange(new string[] { \"Core\", \"CoreUObject\", \"Engine\" });",
+    "ref": "正解是把 `MyMath.h` 改成只留声明 `float HeavySolve(const TArray<FVector>& Points);`，实现搬到 `MyMath.cpp`，这样函数体只在一处编译。`inline` 只是允许同一函数在多个翻译单元有定义，并不省成本：每个包含该头的翻译单元都要编译一遍函数体、各自生成代码，改一次实现所有包含者重编，包体也会涨。",
+    "explain": "头文件里的实现会被每个包含者展开编译，属于原文说的“重复编译”成本，`inline` 反而把定义扩散到所有翻译单元。原文的正例就是“声明在头、实现在 cpp，只有一处编译”；改动后应做一次干净全量构建对比耗时，并关掉 Unity 再编一次做回归。",
+    "src": "深读.md#ue-unit-58"
+  },
+  {
+    "id": "ue9-007",
+    "cat": "ue9",
+    "unit": 59,
+    "unitTitle": "Q59 常见编译错误怎么定位？",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 UE 构建日志的排查，下列说法正确的是？",
+    "options": [
+      "日志里几十条错误要逐条修完，才算彻底解决",
+      "`LNK2019` 会给出出错行号，直接跳到该行附近改就行",
+      "出现 `LNK2019` 应回三处查：模块依赖是否缺失、函数是否只有声明没有实现、跨模块是否缺 `_API` 宏",
+      "清掉 `Intermediate` / `Binaries` 是修复依赖缺失与模块未注册的根治手段",
+      "UHT 错误同样带 `C####` 错误码，可以按错误码查表"
+    ],
+    "answer": [2],
+    "explain": "链接错误只有符号名、没有行号，所以要在依赖、实现、API 宏三处查，不能盯着报错行猜。第一条错误会制造大量连锁，逐条修是在修症状，正确做法是修第一条再重编；清生成目录只是验证生成是否同步，根因还在；`C####` 是编译器错误，UHT 报错没有编译器错误码。",
+    "src": "深读.md#ue-unit-59"
+  },
+  {
+    "id": "ue9-008",
+    "cat": "ue9",
+    "unit": 59,
+    "unitTitle": "Q59 常见编译错误怎么定位？",
+    "type": "fill",
+    "diff": 3,
+    "q": "在头文件里写 `int32 GCount = 0;` 会被所有包含者各定义一份，链接期报重复定义 `____`；应改成 `extern` + cpp 定义，或使用 C++17 的 `inline` 变量。",
+    "answer": ["LNK2005", "LNK2005 错误"],
+    "explain": "头文件里的非 `inline` 全局变量在每个包含它的翻译单元都产生一份定义，链接器看到多个同名符号即报 `LNK2005`。修法是把声明改成 `extern`、定义只留在一个 cpp，或用 C++17 的 `inline` 变量；这类重复定义常与 `LNK2019` 同时出现，先修定义位置。",
+    "src": "深读.md#ue-unit-59"
+  },
+  {
+    "id": "ue9-009",
+    "cat": "ue9",
+    "unit": 60,
+    "unitTitle": "Q60 UHT 报错和普通编译报错怎么区分？",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于如何区分 UHT 报错与普通编译报错，下列说法正确的有？（多选）",
+    "options": [
+      "UHT 在 UBT 构建流程中先于编译器执行，它失败时后面那屏 C++ 报错多是缺生成代码的连锁",
+      "UHT 是完整的 C++ 解析器，会做模板实例化，所以模板技巧报错一定是 C++ 写得不对",
+      "UHT 错误通常带 `UnrealHeaderTool` / `LogCompile` 上下文，且没有编译器错误码",
+      "编译器错误带 `C####`（MSVC）或 `error:`（Clang），并有文件名与行号",
+      "反射声明写在 `.cpp` 里或用 `#if WITH_EDITOR` 包住，UHT 一样能正确识别"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "三条区分线索：有没有 `UnrealHeaderTool`/`LogCompile` 字样、有没有编译器错误码、错误指向头文件宏区还是 cpp 普通语句。UHT 不是完整 C++ 解析器，不做模板实例化，只按自己的规则解析声明；它只在构建前扫头文件类体，反射声明放进 `.cpp` 或条件编译会丢失或让布局错乱。",
+    "src": "深读.md#ue-unit-60"
+  },
+  {
+    "id": "ue9-010",
+    "cat": "ue9",
+    "unit": 60,
+    "unitTitle": "Q60 UHT 报错和普通编译报错怎么区分？",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的反射声明会让 UHT 报错，请指出两处错误类型并给出正确写法：\n\nUFUNCTION(BlueprintCallable)\nvoid SetTags(const std::vector<FName>& Tags);\n\nUPROPERTY(EditAnywhere BlueprintReadWrite, Category = \"My\")\nfloat Speed;",
+    "ref": "① `std::vector` 不在反射系统里，UHT 报 `Unrecognized type`，应换成 UE 容器：`void SetTags(const TArray<FName>& Tags);`。② `UPROPERTY` 的参数之间少了逗号，UHT 报 `Expected a '{'` 之类的语法错，应写成 `UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = \"My\")`。",
+    "explain": "两处都属于 UHT 阶段错误：没有编译器错误码、定位在头文件的宏附近，日志前缀是 `UnrealHeaderTool` / `LogCompile`。常见修法是换成 UE 反射支持的类型或补最小 include，以及对着参数列表逐个核对逗号与括号；修完第一条就重建，不要一次改多处。",
+    "src": "深读.md#ue-unit-60"
+  },
+  {
+    "id": "ue9-011",
+    "cat": "ue9",
+    "unit": 61,
+    "unitTitle": "Q61 API 宏是做什么的？",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 `MODULENAME_API` 宏（如 `MYGAME_API`），下列说法正确的是？",
+    "options": [
+      "只要不加 API 宏，任何配置下都一定链接失败",
+      "同一二进制内静态链接、或 `inline`/模板函数，不加宏也可能正常；但跨动态库边界缺宏必然 `LNK2019`",
+      "类的每个成员函数都要单独加一次 API 宏才能导出",
+      "模板类和模板函数应当整体加 API 宏，否则使用方无法实例化",
+      "全局变量只需在声明处加宏，cpp 定义处不必再写"
+    ],
+    "answer": [1],
+    "explain": "宏把符号标记成可跨模块链接：编本模块时导出、被引用时导入。是否一定失败取决于链接方式，所以工程规范是“对外符号一律加”，而不是赌当前配置。类导出会覆盖其非内联成员函数，但静态成员变量与全局变量的定义处仍要写宏；模板在使用方实例化，本来就没有需要跨边界的符号，整模板加宏反而可能引起重复符号。",
+    "src": "深读.md#ue-unit-61"
+  },
+  {
+    "id": "ue9-012",
+    "cat": "ue9",
+    "unit": 61,
+    "unitTitle": "Q61 API 宏是做什么的？",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的类与全局变量写法各有一处 API 宏问题，请改正：\n\n// MyHealthComponent.h\nMYGAME_API class UMyHealthComponent : public UActorComponent\n{\n    GENERATED_BODY()\npublic:\n    void ApplyDamage(float Amount);\n};\n\nextern int32 GMyHealthDebugLevel;\n\n// MyHealthComponent.cpp\nint32 GMyHealthDebugLevel = 0;",
+    "ref": "① 类的宏位置改成 `class MYGAME_API UMyHealthComponent : public UActorComponent`，即 `class` 之后、类名之前；`MYGAME_API class` 这种写法不统一，部分编译器直接报错。② 全局变量声明改为 `extern MYGAME_API int32 GMyHealthDebugLevel;`，cpp 定义处也要带宏：`MYGAME_API int32 GMyHealthDebugLevel = 0;`。`ApplyDamage` 是成员函数，随类导出，不用单独加。",
+    "explain": "位置规则是：类在 `class` 与类名之间，自由函数在返回类型前，全局变量声明与定义都带宏。漏写定义处的宏，跨模块取地址或写值时链接失败；只在编辑器全源码单二进制下验证也发现不了，验收要在分模块或打包配置下跑。",
+    "src": "深读.md#ue-unit-61"
+  },
+  {
+    "id": "ue9-013",
+    "cat": "ue9",
+    "unit": 62,
+    "unitTitle": "Q62 插件和模块有什么区别？",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于插件与模块的区别，下列说法正确的有？（多选）",
+    "options": [
+      "模块是编译单元（一个模块一个 `Build.cs`），插件是 `.uplugin` 描述的可选包，一个插件可以包含零个或多个模块",
+      "插件就是模块的另一种叫法，两者可以互相替代",
+      "纯资源插件可以不写 `Modules`，只把 `CanContainContent` 设为 true",
+      "加载阶段选早了没关系，`PostConfigInit` 阶段访问 World、GameInstance 一样拿得到",
+      "插件可以在 `.uplugin` 里声明依赖其他插件；漏声明时可能本地碰巧正常，换机器或打包就失效"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "两者是容器与内容的关系：插件解决“装不装、何时加载、带不带内容”，模块解决编译与依赖，插件内部仍然是模块，不能互相替代。加载阶段是插件特有的控制点，`PostConfigInit` 很早，那时访问 World/GameInstance 往往拿不到；插件依赖必须写进 `.uplugin`，否则加载顺序靠运气。",
+    "src": "深读.md#ue-unit-62"
+  },
+  {
+    "id": "ue9-014",
+    "cat": "ue9",
+    "unit": 62,
+    "unitTitle": "Q62 插件和模块有什么区别？",
+    "type": "code",
+    "diff": 2,
+    "q": "插件目录里有 `Source/MyHealthUI/MyHealthUI.Build.cs` 和对应 cpp，但 `.uplugin` 写成下面这样，运行时会出什么问题？请给出改正后的 `Modules` 列表：\n\n// Plugins/MyHealthUI/MyHealthUI.uplugin\n{\n    \"FileVersion\": 3,\n    \"CanContainContent\": true,\n    \"Modules\": []\n}",
+    "ref": "模块没有登记进 `Modules` 数组，代码躺在目录里不参与编译，运行时找不到类、链接期报缺符号。改正后应登记：\n\"Modules\": [\n    { \"Name\": \"MyHealthUI\", \"Type\": \"Runtime\", \"LoadingPhase\": \"Default\" },\n    { \"Name\": \"MyHealthUIEditor\", \"Type\": \"Editor\", \"LoadingPhase\": \"PostEngineInit\" }\n]\n即运行时模块用 `Default`，依赖引擎子系统或编辑器环境的工具模块用 `Editor` 类型加 `PostEngineInit`。",
+    "explain": "`.uplugin` 的 `Modules` 数组登记每个模块的类型与加载阶段，没登记就不编译，这是插件侧最容易漏的一步。`CanContainContent` 只决定能否带资源，纯资源插件才可以完全不写 `Modules`；Runtime 插件里也不能让 Runtime 模块依赖 Editor 模块，否则打包时报 Editor 模块不存在。",
+    "src": "深读.md#ue-unit-62"
+  },
+  {
+    "id": "ue10-001",
+    "cat": "ue10",
+    "unit": 63,
+    "unitTitle": "Q63 空指针和无效对象怎么判？",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 UE 里“非空”与“有效”的判断，下列说法正确的有？（多选）",
+    "options": [
+      "`Destroy()` 之后到下一次 GC 之前对象内存可能还在，`Ptr != nullptr` 会把待销毁对象当活对象用",
+      "成员标了 `UPROPERTY` 就保证对象不会被销毁，所以使用时不必再判有效",
+      "`IsValid(Ptr)` 同时判断“是否为空”和“是否已被标记销毁/回收”",
+      "`TWeakObjectPtr::Get()` 返回非空就说明对象一定可用，不必再考虑世界关闭与正在销毁",
+      "跨帧缓存、委托回调、异步加载回调里，“拿到”与“使用”不在同一时刻，必须在使用点重新判断"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "UObject 的销毁是先标记、后回收，中间窗口里指针非空但对象已不参与逻辑，`IsValid` 才是解引用前的统一兜底。`UPROPERTY` 只让 GC 看见引用、不回收对象，保证“可达”不保证“可用”；`Get()` 只回答对象还在不在，世界关闭、`IsActorBeingDestroyed` 这些层仍要自己判。",
+    "src": "深读.md#ue-unit-63"
+  },
+  {
+    "id": "ue10-002",
+    "cat": "ue10",
+    "unit": 63,
+    "unitTitle": "Q63 空指针和无效对象怎么判？",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的 `Fire()` 有三处判空问题，请按原文的判断层次改写：\n\nvoid AMyTurret::Fire()\n{\n    AActor* Target = CachedTarget.Get();\n    if (Target != nullptr)\n    {\n        Target->SetActorLocation(FVector::ZeroVector);\n    }\n    Mesh->SetVisibility(true);\n}",
+    "ref": "① 只判 `nullptr` 不够，目标可能已被 `Destroy` 但地址还在：改 `if (!IsValid(Target) || Target->IsActorBeingDestroyed()) { CachedTarget.Reset(); return; }`。② 目标失效时应清掉弱引用缓存 `CachedTarget.Reset()`，避免反复访问。③ 组件使用前要判有效性与注册状态：`if (!IsValid(Mesh) || !Mesh->IsRegistered()) return;`，未注册时相关 API 可能不起作用。判断顺序固定为“空 → `IsValid` → `IsActorBeingDestroyed` → 世界 `bIsTearingDown`”。",
+    "explain": "`Destroy()` 只标记待销毁并走 `EndPlay`，GC 之前内存可能还在，所以裸判 `nullptr` 会放过待销毁对象。`TWeakObjectPtr::Get()` 只解决“对象还在不在”，逻辑有效性要靠 `IsValid` 与 `IsActorBeingDestroyed`；组件即使 `IsValid`，没 `RegisterComponent` 时碰撞、Tick、网络复制都不生效。",
+    "src": "深读.md#ue-unit-63"
+  },
+  {
+    "id": "ue10-003",
+    "cat": "ue10",
+    "unit": 64,
+    "unitTitle": "Q64 悬垂指针是怎么产生的，怎么防？",
+    "type": "single",
+    "diff": 2,
+    "q": "关于悬垂指针的来源与防御，下列说法正确的是？",
+    "options": [
+      "悬垂指针只是“忘记判空”造成的，加上 `nullptr` 判断就能根治",
+      "用了 `TWeakObjectPtr` 就不会悬垂，任何线程、任何位置都能安全解引用",
+      "没标 `UPROPERTY` 的裸指针成员不在 GC 引用图里，下一次 GC 可能直接回收对象，指针随即悬垂",
+      "`Destroy()` 之后内存立刻回收，所以不存在“销毁到回收之间”的误用窗口",
+      "`AddRaw` 与捕获裸 `this` 的 lambda 在广播前会做对象有效性检查"
+    ],
+    "answer": [2],
+    "explain": "GC 只从根集合沿反射引用图（`UPROPERTY`、`TObjectPtr`、`AddReferencedObjects`）遍历，普通 C++ 成员它看不见，对象没别的强引用就会被回收。判空只是兜底，根因是持有方式与真实生命周期不匹配；`Destroy` 到 GC 之间还有窗口；`AddRaw` 与裸 `this` 的 lambda 都没有有效性检查，是标准悬垂调用。",
+    "src": "深读.md#ue-unit-64"
+  },
+  {
+    "id": "ue10-004",
+    "cat": "ue10",
+    "unit": 64,
+    "unitTitle": "Q64 悬垂指针是怎么产生的，怎么防？",
+    "type": "fill",
+    "diff": 3,
+    "q": "非 UObject 的观察者要长期持有 UObject 引用并让 GC 看见，应继承 ____ 并实现 `AddReferencedObjects`，否则该引用不在 GC 引用图里，对象随时可能被回收。",
+    "answer": ["FGCObject", "FGCObject 类", "FGCObject类"],
+    "explain": "GC 只认显式声明的引用边，非 UObject 的持有者没有 `UPROPERTY` 可用，只能继承 `FGCObject` 并在 `AddReferencedObjects` 里登记引用。其余两层的分工不变：所有权用 `UPROPERTY`/`TObjectPtr`，观察关系用 `TWeakObjectPtr`，未来执行的回调捕获弱引用并在使用点判 `IsValid`。",
+    "src": "深读.md#ue-unit-64"
+  },
+  {
+    "id": "ue10-005",
+    "cat": "ue10",
+    "unit": 65,
+    "unitTitle": "Q65 Tick 里做什么会出事？",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 Tick 里的危险操作，下列说法正确的有？（多选）",
+    "options": [
+      "每帧 `Spawn`/`Destroy` 会带来构造、组件注册、GC 记账与分配抖动，最终表现为周期性 GC 尖峰",
+      "设了 `TickInterval` 就等于完成了优化，因为它已经不再是轮询",
+      "每帧 `AddDynamic` 会不断累积槽位，一次广播把同一函数调用多次",
+      "调试绘制只影响 PIE，一定不会被编译进 Shipping",
+      "`GetAllActorsOfClass`、`FindActor` 是 O(N) 遍历，对象越多越慢，关卡流式加载时结果还不稳定"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "Tick 的成本是“单次开销 × 实例数 × 帧率”，所以每帧生成销毁、O(N) 查找、重复绑定都会被放大。降频只是把成本除以一个系数，本质仍是轮询，能事件驱动才算解决；调试绘制是否进 Shipping 取决于配置，持久绘制还会累积对象，不能假设它一定自动消失。",
+    "src": "深读.md#ue-unit-65"
+  },
+  {
+    "id": "ue10-006",
+    "cat": "ue10",
+    "unit": 65,
+    "unitTitle": "Q65 Tick 里做什么会出事？",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段 Tick 有三类问题，请逐条指出并给出替代方案：\n\nvoid AMySpawner::Tick(float DeltaSeconds)\n{\n    Super::Tick(DeltaSeconds);\n    TArray<AActor*> Found;\n    UGameplayStatics::GetAllActorsOfClass(GetWorld(), AMyTarget::StaticClass(), Found);\n    for (AActor* A : Found)\n    {\n        if (A) { /* 轻量逻辑 */ }\n    }\n    UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, TEXT(\"/Game/SM_Bullet.SM_Bullet\"));\n    GetWorld()->SpawnActor<AMyBullet>(BulletClass, GetActorTransform());\n}",
+    "ref": "① 每帧 `GetAllActorsOfClass` 既分配又遍历，随关卡变化还不稳定：改到 `BeginPlay` 缓存目标列表（或用管理器维护 `TMap` 索引），必须轮询时降频，缓存项用 `TWeakObjectPtr`。② 每帧同步 `LoadObject` 在主线程做 IO 与解码，首次触发即 hitch：改异步加载（如 `FStreamableManager::RequestAsyncLoad`），回调里再用，或提前预加载。③ 每帧 `SpawnActor` 触发构造、组件注册、网络复制登记与 GC 记账：改对象池复用，避免每帧分配。",
+    "explain": "判断标准是“这段逻辑是每帧都在变，还是事件发生时才变”：插值、朝向属前者，血量变化、波次开始、进入范围属后者，后者不该写在 Tick 里。三项替代方案分别对应遍历成本、同步等待与分配/GC 压力；只把 `if (A)` 换成 `IsValid` 并不能解决这三类问题。",
+    "src": "深读.md#ue-unit-65"
+  },
+  {
+    "id": "ue10-007",
+    "cat": "ue10",
+    "unit": 66,
+    "unitTitle": "Q66 为什么构造函数里 GetWorld() 是空的？",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 Actor 构造函数与 `GetWorld()`，下列说法正确的是？",
+    "options": [
+      "构造函数只在实例化时跑一次，CDO 不会执行它",
+      "CDO 在引擎启动或类加载时构造，那时没有世界、没有 GameInstance，所以构造函数里 `GetWorld()` 必然为空",
+      "构造函数里 `GetWorld()` 偶尔能拿到值，说明可以放心在里面取 `TimerManager`",
+      "`OnConstruction` 只在运行时执行一次，可以用来替代 `BeginPlay` 做游戏逻辑初始化",
+      "构造函数里 `SpawnActor` 生成默认武器是安全的，因为每个类只会执行一次"
+    ],
+    "answer": [1],
+    "explain": "CDO 是引擎为每个 UClass 造的模板对象，用于编辑器展示与蓝图继承，构造时没有 World/GameInstance，构造里的副作用还会在打开蓝图、热重载时反复发生。`OnConstruction` 在对象构建后调用且编辑器改属性也触发，执行频率高；`SpawnActor`、`GetTimerManager`、绑定外部委托都必须等 World 就位，放到 `PostInitializeComponents` 或 `BeginPlay`。",
+    "src": "深读.md#ue-unit-66"
+  },
+  {
+    "id": "ue10-008",
+    "cat": "ue10",
+    "unit": 66,
+    "unitTitle": "Q66 为什么构造函数里 GetWorld() 是空的？",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的构造函数有两处依赖了尚未就位的 World，请指出后果并给出迁移方案（写到哪个阶段、怎么写）：\n\nAMyTower::AMyTower()\n{\n    PrimaryActorTick.bCanEverTick = true;\n    Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT(\"Mesh\"));\n    SetRootComponent(Mesh);\n    FireInterval = 1.0f;\n    if (UWorld* World = GetWorld())\n    {\n        World->GetTimerManager().SetTimer(FireTimer, this, &AMyTower::FireOnce, FireInterval, true);\n    }\n    GetWorld()->SpawnActor<AMyWeapon>(WeaponClass);\n}",
+    "ref": "构造函数跑在 World/Level 关联之前，CDO 也会执行，`GetWorld()` 为空：定时器那段会静默不生效，`GetWorld()->SpawnActor(...)` 更是直接空指针崩溃，编辑器打开该蓝图就复现。构造里只保留 `PrimaryActorTick`、`CreateDefaultSubobject`、`SetRootComponent` 与纯默认值赋值（如 `FireInterval`）；定时器与 `SpawnActor` 一起移到 `BeginPlay`：`if (UWorld* World = GetWorld()) { World->GetTimerManager().SetTimer(FireTimer, this, &AMyTower::FireOnce, FireInterval, true); World->SpawnActor<AMyWeapon>(WeaponClass); }`；只依赖组件已注册的初始化放 `PostInitializeComponents`。",
+    "explain": "Spawn 流程是“构造 → 关联 Level/World → 初始化组件 → `BeginPlay`”，World 的可用性随时机递增，越晚越安全。组件在构造期只是被创建、尚未 `RegisterComponent`，组件上的世界查询、碰撞、Tick 都还没生效；`OnConstruction` 虽通常有 World，但编辑器改属性也会触发，只该做可视化调整。",
+    "src": "深读.md#ue-unit-66"
+  },
+  {
+    "id": "ue10-009",
+    "cat": "ue10",
+    "unit": 67,
+    "unitTitle": "Q67 委托没解绑会怎样？",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于委托绑定的生命周期语义，下列说法正确的有？（多选）",
+    "options": [
+      "`AddDynamic` / `AddUObject` 内部是弱引用，广播时会跳过失效对象，所以忘了解绑通常不崩",
+      "弱引用绑定不会出问题，槽位残留、重复绑定、逻辑误触发都不会发生",
+      "`AddRaw`、捕获裸 `this` 的 lambda 没有有效性检查，对象先销毁、回调后执行就是野指针调用",
+      "`RemoveAll(this)` 会把这个委托上其他监听者的绑定一起删掉",
+      "`AddSP` 或 lambda 捕获 `TSharedPtr` 会延长非 UObject 对象的寿命，用不好就是泄漏"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "委托保存的是“怎么找到这个函数”，不是“对象还活着”，弱引用只保证广播时跳过失效对象，槽位残留与重复绑定仍属业务语义问题。`RemoveAll(this)` 只移除该对象在这个委托上的绑定，不影响其他监听者；共享指针绑定把管理器与监听者的寿命绑在一起，用得好是生命周期管理，用不好就是泄漏。",
+    "src": "深读.md#ue-unit-67"
+  },
+  {
+    "id": "ue10-010",
+    "cat": "ue10",
+    "unit": 67,
+    "unitTitle": "Q67 委托没解绑会怎样？",
+    "type": "fill",
+    "diff": 2,
+    "q": "`AddLambda` 绑定后没有函数指针可匹配，`RemoveDynamic` 对它无效；要按条精确移除，必须保存 ____ 再调用 `Remove(Handle)`。",
+    "answer": ["FDelegateHandle", "FDelegateHandle 句柄", "委托句柄 FDelegateHandle"],
+    "explain": "委托绑定返回的 `FDelegateHandle` 是精确移除的凭据，`Remove(Handle)` 只摘掉这一条。lambda 绑定没有函数名可比对，保存句柄几乎是唯一办法，否则只能整体 `Clear`；`EndPlay` 里通常还配 `RemoveAll(this)` 与 `ClearTimer`，清理清单要覆盖委托、定时器、缓存三样。",
+    "src": "深读.md#ue-unit-67"
+  },
+  {
+    "id": "ue10-011",
+    "cat": "ue10",
+    "unit": 68,
+    "unitTitle": "Q68 多线程里能碰 UObject 吗？",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于多线程里访问 UObject，下列说法正确的有？（多选）",
+    "options": [
+      "UObject 的创建、销毁、属性修改默认只在游戏线程安全，工作线程里 `NewObject`、`SpawnActor`、改 `UPROPERTY` 会断言或数据竞争",
+      "工作线程只读 UObject 就不会出问题，因为不写就不会有数据竞争",
+      "GC 只在游戏线程运行，工作线程持有裸指针不阻止回收，只是把崩溃延后",
+      "把 `TWeakObjectPtr` 传给工作线程后可以直接在工作线程 `Get()` 并解引用，因为弱指针是并发安全的",
+      "`ParallelFor` 的循环体里只应碰传入的裸数据与局部变量，需要写回时先写预分配数组，循环结束回游戏线程统一应用"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "GC 要从根集合遍历所有 UObject 与引用图，必须与游戏逻辑串行，所以工作线程“只读”也可能撞上 GC 或游戏线程的写，属于数据竞争。`TWeakObjectPtr` 不是为并发读写设计的，跨线程只传递、回游戏线程再 `Get()` 并判有效；渲染资源归渲染线程，相关更新走 `ENQUEUE_RENDER_COMMAND`。",
+    "src": "深读.md#ue-unit-68"
+  },
+  {
+    "id": "ue10-012",
+    "cat": "ue10",
+    "unit": 68,
+    "unitTitle": "Q68 多线程里能碰 UObject 吗？",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的后台任务把游戏线程的东西直接带进了工作线程，请指出四处问题并给出正确写法要点：\n\nvoid AMyActor::StartHeavyWork(const TArray<float>& Input)\n{\n    AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, &Input]()\n    {\n        TArray<float> Results;\n        for (int32 i = 0; i < Input.Num(); ++i)\n        {\n            Results.Add(HeavyMath(Input[i]));\n            Counter++;\n        }\n        ApplyResults(Results);\n    });\n}",
+    "ref": "① 捕获 `this` 与 `&Input` 把 UObject 和游戏线程容器带进工作线程，任务执行时引用可能已失效或被并发改写：进任务前值拷贝，写成 `[WeakThis = TWeakObjectPtr<AMyActor>(this), Data = Input]`。② 工作线程里 `Counter++` 修改成员（`UPROPERTY`）属数据竞争与断言：只写局部结果。③ 工作线程直接 `ApplyResults(Results)` 触碰 UObject：改成 `AsyncTask(ENamedThreads::GameThread, ...)` 回主线程再调用。④ 捕获裸 `this` 在对象销毁后任务才完成会崩：回主线程先 `WeakThis.Get()` 判有效，取不到就丢弃结果。",
+    "explain": "UObject 归游戏线程所有，工作线程只该算纯数据，跨线程只有三条路：值拷贝、只读不可变数据、把结果排队回游戏线程。`ParallelFor` 同理——循环体不捕获 `this` 改成员、不创建 UObject，写回用预分配数组加索引；给“只在游戏线程调用”的函数加 `check(IsInGameThread())` 能尽早抓出越界调用。",
+    "src": "深读.md#ue-unit-68"
+  }
+]

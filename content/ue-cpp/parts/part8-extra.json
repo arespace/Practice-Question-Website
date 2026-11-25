@@ -1,0 +1,167 @@
+[
+  {
+    "id": "ue7-x41",
+    "cat": "ue7",
+    "unit": 41,
+    "unitTitle": "Q41 三种 RPC 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "武器用 WithValidation 的 Server RPC 处理开火，实测每开一枪服务器弹药少两发，网络重发时扣得更多。阅读下面片段，指出 Validate 与 Implementation 的职责错位，并写出修正后的两个函数：\n\n```cpp\n// AMyWeapon.h\nUFUNCTION(Server, Reliable, WithValidation)\nvoid Server_Fire();\n\n// AMyWeapon.cpp\nbool AMyWeapon::Server_Fire_Validate()\n{\n    if (Ammo <= 0) { return false; }\n    --Ammo;                       // 顺手扣一发\n    return true;\n}\n\nvoid AMyWeapon::Server_Fire_Implementation()\n{\n    --Ammo;                       // 真正扣弹\n    Multicast_PlayMuzzleFX();\n}\n```",
+    "ref": "Validate 只判断合法性，绝不能改状态：它在服务器收到 RPC 时先执行，返回 true 才进入 Implementation，且可能被多次调用，改 Ammo 就等于多扣了隐藏的一份。修正：`bool AMyWeapon::Server_Fire_Validate() { return Ammo > 0; }`；`void AMyWeapon::Server_Fire_Implementation() { if (Ammo <= 0) { return; } --Ammo; Multicast_PlayMuzzleFX(); }`。所有写操作只放在 Implementation 里，校验不通过时引擎会拒绝执行并在日志里留痕。",
+    "explain": "WithValidation 的执行顺序是「先 Validate，通过才 Implementation」，两次扣弹自然叠加成扣两发。Validate 的职责只是廉价判断参数与状态是否合法，不保证只被调用一次，也不该有副作用；判分要点是说出它属于校验分支、不能写状态，并把扣弹收敛到 `_Implementation`。若需要防作弊，还应由 Implementation 内部再校验一次权威状态。"
+  },
+  {
+    "id": "ue7-x42",
+    "cat": "ue7",
+    "unit": 42,
+    "unitTitle": "Q42 属性同步是怎么做的",
+    "type": "code",
+    "diff": 3,
+    "q": "冷却组件里的属性已标 Replicated，组件也实现了自己的 GetLifetimeReplicatedProps，但客户端冷却条始终是满的、从不更新；所属 Actor 的 bReplicates 为 true。指出缺失的一步并给出修正：\n\n```cpp\n// AMyCooldownComponent.h\nUCLASS()\nclass UMyCooldownComponent : public UActorComponent\n{\n    GENERATED_BODY()\npublic:\n    UMyCooldownComponent();   // 构造里什么都没写\n    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out) const override;\n\n    UPROPERTY(Replicated) float Remaining = 0.f;\n};\n\n// AMyCooldownComponent.cpp\nvoid UMyCooldownComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out) const\n{\n    Super::GetLifetimeReplicatedProps(Out);\n    DOREPLIFETIME(UMyCooldownComponent, Remaining);\n}\n```",
+    "ref": "组件要参与复制，必须先在构造里 `SetIsReplicatedByDefault(true)`（等价于旧写法 `bReplicates = true` / `SetIsReplicated(true)`），否则该组件不会被登记进所属 Actor 的复制组件列表，它自己注册的 `DOREPLIFETIME` 永远不会被走到。修正：`UMyCooldownComponent::UMyCooldownComponent() { SetIsReplicatedByDefault(true); }`，并确认所属 Actor 的 `bReplicates = true`。属性注册留在组件自己的 `GetLifetimeReplicatedProps` 里即可，不必搬到 Actor 的注册函数中——组件属性走组件自己的通道。",
+    "explain": "常见误区是「组件里写了 DOREPLIFETIME 就会同步」，但组件是否复制由所属 Actor 的复制组件列表决定，只有 `SetIsReplicatedByDefault(true)` 的组件才会被登记。表征是 Actor 位置同步正常、组件状态（冷却、血条、弹药）永远停在默认值，且没有任何报错。另一个易错点是往 Actor 的 `GetLifetimeReplicatedProps` 里写组件字段，那对 Actor 自身属性有效，对组件无效。"
+  },
+  {
+    "id": "ue7-x43",
+    "cat": "ue7",
+    "unit": 43,
+    "unitTitle": "Q43 Authority 和 Ownership 分别是什么",
+    "type": "code",
+    "diff": 2,
+    "q": "把下面这段自检放在玩家 Pawn 的 BeginPlay，PIE 用 Listen Server + 2 Players 运行。说明服务器、拥有者客户端、另一个客户端三份日志里 auth 与 role 各是什么，并解释主机玩家的 Pawn 为什么是 Authority：\n\n```cpp\nvoid AMyCharacter::BeginPlay()\n{\n    Super::BeginPlay();\n\n    UE_LOG(LogTemp, Log, TEXT(\"[Role] %s auth=%d role=%d owner=%s\"),\n        *GetName(), HasAuthority() ? 1 : 0,\n        static_cast<int32>(GetLocalRole()),\n        *GetNameSafe(GetOwner()));\n\n    if (GetLocalRole() == ROLE_AutonomousProxy)\n    {\n        // 本地玩家：可以读输入、做预测\n    }\n    else if (GetLocalRole() == ROLE_SimulatedProxy)\n    {\n        // 别人的角色：只做插值与表现\n    }\n}\n```",
+    "ref": "服务器（含监听服务器主机）上 auth=1、role=ROLE_Authority；拥有这个 Pawn 的客户端上 auth=0、role=ROLE_AutonomousProxy；另一个客户端上 auth=0、role=ROLE_SimulatedProxy。主机玩家的 Pawn 同样是服务器上的权威副本，所以 `HasAuthority()` 为真，同时它又被本地玩家控制（`IsLocallyControlled()` 也为真）——这种双重身份正是「单机或主机没事、纯客户端出错」的根源。`GetOwner()` 一般指向 PlayerController，是 Server/Client RPC 沿链找连接的起点，模拟代理上不会产生本地输入。",
+    "explain": "Role 是每份 Actor 在本地进程里的身份，不是可手动指定的选项：服务器那份是 Authority，被本地玩家控制的那份是 AutonomousProxy，其余是 SimulatedProxy。判分要点是三个 Role 名称与 auth 位都写对，并指出主机 = Authority + 本地控制，因此不能给它再套一层纯客户端预测分支。模拟代理上读输入恒为零，输入逻辑必须放在 `IsLocallyControlled()` 分支里。"
+  },
+  {
+    "id": "ue7-x44",
+    "cat": "ue7",
+    "unit": 44,
+    "unitTitle": "Q44 客户端预测与回滚是怎么做的",
+    "type": "code",
+    "diff": 3,
+    "q": "网络抖动时玩家听到的脚步和枪口特效一次变成好几次。阅读下面的预测闭环，指出表现为什么会被重复触发，并给出与模拟解耦的修正：\n\n```cpp\nvoid AMyPawn::ApplyMove(const FMoveInput& In)\n{\n    AddActorWorldOffset(In.Axis * Speed * In.DeltaTime);\n    PlayFootstepSound();          // 表现写在模拟里\n}\n\nvoid AMyPawn::Client_ApplyCorrection_Implementation(\n    FVector ServerLocation, uint32 AckedSeq)\n{\n    UnackedInputs.RemoveAll(\n        [AckedSeq](const FMoveInput& In) { return In.Seq <= AckedSeq; });\n    SetActorLocation(ServerLocation);\n    for (const FMoveInput& In : UnackedInputs)\n    {\n        ApplyMove(In);            // 重放：表现又播一遍\n    }\n}\n```",
+    "ref": "重放会把队列里未确认的输入再模拟一遍，写在 `ApplyMove` 里的一次性表现就被重复执行：回滚一次、重放 N 条，就播 N 次脚步。修正：`ApplyMove` 只允许改权威状态（位移、速度），表现抽成独立函数；重放期间用标志抑制表现，例如 `bReplaying = true;` 包住重放循环、结束后复位，或在 `ApplyMove` 里 `if (!bReplaying) { PlayFootstepSound(); }`。更彻底的做法是表现由事件驱动并带去重键（如 `In.Seq`），同一条输入只播一次。",
+    "explain": "预测闭环里同一个输入会被执行两次以上：先本地预测，后被回滚触发的重放。状态可以重复模拟（结果相同），有副作用的表现不能。判分要点是识别「重放 = 再执行一遍」以及「表现要有抑制开关或去重键」，只答「少播一点」不算。若表现反过来影响状态（比如播放中禁止移动），就必须把表现从模拟路径彻底剥离，否则重放结果也会不一致。"
+  },
+  {
+    "id": "ue7-x45",
+    "cat": "ue7",
+    "unit": 45,
+    "unitTitle": "Q45 状态同步和 RPC 怎么选",
+    "type": "code",
+    "diff": 3,
+    "q": "Character 用 ReplicatedUsing 的属性记录开火次数，OnRep 里播一声枪响。服务器在同一个网络更新窗口内连开三枪，客户端只听到一声。解释原因并给出两种可行修正：\n\n```cpp\nUPROPERTY(ReplicatedUsing = OnRep_ShotsFired)\nint32 ShotsFired = 0;\n\nUFUNCTION(NetMulticast, Unreliable)\nvoid Multicast_PlayFireSound();\n\nvoid AMyCharacter::Server_Fire_Implementation()\n{\n    ++ShotsFired;                 // 想靠属性同步把“开火”传下去\n}\n\nvoid AMyCharacter::OnRep_ShotsFired()\n{\n    PlayFireSound();              // 每变化一次播一次\n}\n```",
+    "ref": "属性同步是状态收敛，不是事件流：服务器在两次网络更新之间连改三次，客户端只收到最终值，OnRep 也只触发一次，三枪就变了一声。修正一：把「开火」当成事件，服务器结算后调 `Multicast_PlayFireSound()`（Unreliable，丢了不影响逻辑）。修正二：仍用计数属性，但在 OnRep 里播差值——记录 `LastPlayedShots`，循环播 `ShotsFired - LastPlayedShots` 次再更新它；计数器必须能表达重复次数，不能用 bool 或时间戳代替。",
+    "explain": "属性同步按 `NetUpdateFrequency` 节流，只保证「当前值正确」，不保证「变化发生了几次」。把事件塞进属性，客户端无法计数；把状态放进 RPC，晚加入的玩家又拿不到历史。判分要点是说出「合并成最终值、只回调一次」，并给出事件化或用差值补播的可行修正。OnRep 里播表现没问题，但不能在里面改需要服务器认可的状态。"
+  },
+  {
+    "id": "ue7-x46",
+    "cat": "ue7",
+    "unit": 46,
+    "unitTitle": "Q46 网络相关性（Relevancy）是什么",
+    "type": "code",
+    "diff": 3,
+    "q": "掉落物为了省带宽，构造里设了 bOnlyRelevantToOwner，服务器 Spawn 后没有设 Owner。结果所有客户端都看不到它，也无法交互。解释原因并给出两种修正：\n\n```cpp\nAMyDropItem::AMyDropItem()\n{\n    bReplicates = true;\n    bOnlyRelevantToOwner = true;   // “只给拥有者看，省带宽”\n    NetCullDistanceSquared = FMath::Square(3000.f);\n}\n\nvoid AMyLootSpawner::DropLoot(const FVector& At)\n{\n    FActorSpawnParameters P;\n    P.SpawnCollisionHandlingOverride =\n        ESpawnActorCollisionHandlingMethod::AlwaysSpawn;\n\n    AMyDropItem* Item = GetWorld()->SpawnActor<AMyDropItem>(\n        DropClass, At, FRotator::ZeroRotator, P);\n    // 没有 SetOwner\n}\n```",
+    "ref": "`bOnlyRelevantToOwner` 的语义是「只对 Owner 的连接相关」，相关性判定里除 Owner 放行外直接返回 false。Spawn 出来的掉落物没有 Owner，等于没有任何连接是它的收件人，服务器不会为谁建 channel，客户端上这个 Actor 根本不存在，自然点不到。修正一：如果它应对附近所有人可见，去掉 `bOnlyRelevantToOwner`，用 `NetCullDistanceSquared` 按距离相关。修正二：确实要私有，就在 Spawn 后立即 `Item->SetOwner(新拥有者)`，拾取转移时由服务器改 Owner 让客户端重新相关。",
+    "explain": "相关性是 per-connection 判定，`bOnlyRelevantToOwner` 是强约束而不是「优先给 Owner」：没有 Owner 时它谁也不发给。表征是 Actor 在服务器上存在、`stat net` 里没有它的 channel、客户端完全没有这个对象，RPC 也没有落点。判分要点是区分「距离裁掉」与「OnlyRelevantToOwner 无人相关」：前者是走远才消失，后者从一开始就不存在。"
+  },
+  {
+    "id": "ue7-x47",
+    "cat": "ue7",
+    "unit": 47,
+    "unitTitle": "Q47 Reliable 和 Unreliable 怎么选",
+    "type": "code",
+    "diff": 3,
+    "q": "武器在 Tick 里每帧发一条 Reliable 的 Multicast 播枪口火光。网络稍差时客户端特效延迟几秒后集中爆发，严重时连接被断开。指出问题并给出至少三处修正：\n\n```cpp\nUFUNCTION(NetMulticast, Reliable)\nvoid Multicast_PlayMuzzleFX(FVector Location);\n\nvoid AMyWeapon::Tick(float DeltaSeconds)\n{\n    Super::Tick(DeltaSeconds);\n\n    if (HasAuthority() && bFiring)\n    {\n        Multicast_PlayMuzzleFX(GetMuzzleLocation());   // 约 60 次/秒\n    }\n}\n```",
+    "ref": "每帧一条 Reliable 等于把表现塞进有序可靠队列：丢一个包就要等重传，后面的全排在它之后（队头阻塞），客户端看到的是延迟累积后一起爆发；可靠缓冲写满时连接会被判定异常并断开。修正：① 改 `NetMulticast, Unreliable`——火光、音效这类「当时没看到就不补」的表现本就该可丢；② 由事件驱动而非每帧发（开火动作触发一次，或按射速合并、降频）；③ 参数量化，位置用 `FVector_NetQuantize10` 之类，别传全精度 float；④ 客户端若要即时反馈，本地先播并做去重，避免拥有者看到双份。",
+    "explain": "Reliable 买的是到达与顺序，花的是有限可靠窗口；高频表现会把它占满，反而拖慢真正重要的可靠事件，Unreliable 不是「低质量」而是语义匹配。判分要点是说清队头阻塞与可靠缓冲溢出两个后果、把宏改成 Unreliable，并给出降频或量化中至少一条。只答「少发一点」不构成修复，因为 Tick 频率不变时队列很快又会被填满。"
+  },
+  {
+    "id": "ue7-x48",
+    "cat": "ue7",
+    "unit": 48,
+    "unitTitle": "Q48 网络同步常见坑有哪些",
+    "type": "code",
+    "diff": 3,
+    "q": "角色血量用 ReplicatedUsing 同步，OnRep 里直接通过 PlayerState 上的组件刷新血条。第一次进游戏和重生时偶发崩溃，之后正常。解释原因并给出修正：\n\n```cpp\nUPROPERTY(ReplicatedUsing = OnRep_Health)\nfloat Health = 100.f;\n\nvoid AMyCharacter::OnRep_Health()\n{\n    AMyPlayerState* PS = GetPlayerState<AMyPlayerState>();\n    // 直接解引用：初始同步阶段 PS 或其组件可能还不存在\n    PS->HealthBarComp->SetPercent(Health / MaxHealth);\n}\n\nvoid AMyCharacter::BeginPlay()\n{\n    Super::BeginPlay();\n    RefreshHealthUI();            // 幂等刷新\n}\n```",
+    "ref": "初始同步的顺序不保证：客户端可能先收到 Character 的属性并触发 OnRep，而 PlayerState 及其组件还没复制过来，`GetPlayerState()` 返回 nullptr，直接解引用就崩，表现为「第一次进游戏必崩、之后正常」。修正：OnRep 里先 `if (!PS || !PS->HealthBarComp) { return; }`，并把值缓存下来等依赖到位再刷；刷新统一抽成幂等函数（如 `RefreshHealthUI()`），由 `BeginPlay`、依赖的 OnRep 和事件驱动各调一次，重复执行无害。",
+    "explain": "OnRep 只说明「这个字段变了」，不说明「场景里其他对象都就绪了」。Actor 生成、属性初始同步、BeginPlay、RPC 到达之间没有线性保证，所以 OnRep 里访问 Owner、Controller、PlayerState 或其他 Actor 的组件都必须判空，或延迟到确认同步后再做。判分要点是识别「顺序不保证」这一根因，并给出判空加幂等刷新或延迟应用的修法；只说「加重试」不算。"
+  },
+  {
+    "id": "ue8-x49",
+    "cat": "ue8",
+    "unit": 49,
+    "unitTitle": "Q49 Tick 开销怎么优化",
+    "type": "code",
+    "diff": 2,
+    "q": "持续伤害 Actor 设了 TickInterval=0.033，想在每次 Tick 里按 DeltaSeconds 是否达到 0.05 秒决定掉血。实测伤害一次都没触发。解释原因并写出正确写法：\n\n```cpp\nAMyDotVolume::AMyDotVolume()\n{\n    PrimaryActorTick.bCanEverTick = true;\n    PrimaryActorTick.TickInterval = 0.033f;   // 约 30Hz\n}\n\nvoid AMyDotVolume::Tick(float DeltaSeconds)\n{\n    // TimeAcc 是 float 成员，初值 0\n    if (DeltaSeconds >= 0.05f)\n    {\n        ApplyDotDamage();      // 期望每 50ms 掉一次血\n    }\n}\n```",
+    "ref": "`TickInterval` 下引擎每隔约 0.033 秒调一次，传入的 `DeltaSeconds` 是两次调用之间累积的真实时长（约 0.033），判断 `>= 0.05` 永远不成立，所以一次都不触发。正确写法是累加后再判断：`TimeAcc += DeltaSeconds; if (TimeAcc >= 0.05f) { TimeAcc -= 0.05f; ApplyDotDamage(); }`——用减而不是清零，避免掉帧时丢时间。要严格 50ms 节奏也可以直接用 `SetTimer`，但必须记住在销毁路径里清掉定时器。",
+    "explain": "`TickInterval` 只改调用频率，不改语义：`DeltaSeconds` 仍是「距上次调用过了多久」，在间隔模式下就是一个累积值。任何「每帧一次」「DeltaSeconds 约等于帧时间」的假设在开启 TickInterval 后都会失真，常见的还有按帧计数和按帧做阈值判断。判分要点是指出 DeltaSeconds 是累积时长并给出累加减固定步长的写法；把 0.05 改小属于拍脑袋，帧率一变又会错。"
+  },
+  {
+    "id": "ue8-x50",
+    "cat": "ue8",
+    "unit": 50,
+    "unitTitle": "Q50 对象池怎么做",
+    "type": "code",
+    "diff": 3,
+    "q": "子弹池写在武器 Actor 里，BeginPlay 预热 10 发。实测每局第一枪都卡一下、池命中率为零；切关卡回来更明显。解释原因并给出池的正确归属与最小修正：\n\n```cpp\nUCLASS()\nclass AMyWeapon : public AActor\n{\n    GENERATED_BODY()\npublic:\n    virtual void BeginPlay() override;\n    APooledBullet* Acquire();\n\n    UPROPERTY()\n    TArray<TObjectPtr<APooledBullet>> FreeList;\n};\n\nvoid AMyWeapon::BeginPlay()\n{\n    Super::BeginPlay();\n    for (int32 i = 0; i < 10; ++i)\n    {\n        APooledBullet* B = GetWorld()->SpawnActor<APooledBullet>();\n        B->Deactivate();\n        FreeList.Add(B);\n    }\n}\n```",
+    "ref": "池的宿主生命周期必须与「这一局」对齐，而武器 Actor 短得多：换武器、角色死亡、切关卡都会 Destroy 它，池连同子弹一起失效，新实例的 `FreeList` 是空的，于是每次都要重新 Spawn 预热，池化形同没有，首枪还会出现构造与组件注册的尖峰。修正：把池搬到 `UWorldSubsystem`（跟关卡走）或 `UGameInstanceSubsystem`（跨关卡保留，需在切换时清空重建），由它负责预热、`Acquire`、`Release`，武器只向池申请；池内对象继续用 `UPROPERTY()` 强引用持有以免被 GC 收走。",
+    "explain": "池化省的是 Spawn 的构造、组件注册、物理与渲染注册，前提是同一批对象被反复复用；宿主一换，复用率归零。判分要点是识别「池挂在会销毁的 Actor 上」这一生命周期错位，给出 Subsystem 级别的归属，并说明预热应放在加载界面或关卡开始以避免首枪尖峰。若池跨关卡保留，还要处理旧 World 里对象已销毁的问题，不能直接沿用指针。"
+  },
+  {
+    "id": "ue8-x51",
+    "cat": "ue8",
+    "unit": 51,
+    "unitTitle": "Q51 GC 卡顿怎么优化",
+    "type": "code",
+    "diff": 2,
+    "q": "Spawner 每帧新建一个临时 UObject 做计算，并把它加进历史数组「方便回看」。运行几分钟后 GC 尖峰越来越长、内存持续上涨。指出根因并给出最小修正：\n\n```cpp\n// AMySpawner.h\nUPROPERTY()\nTArray<TObjectPtr<UMyTempData>> History;\n\n// AMySpawner.cpp\nvoid AMySpawner::Tick(float DeltaSeconds)\n{\n    UMyTempData* Data = NewObject<UMyTempData>(this);\n    Data->Compute();\n    History.Add(Data);      // 想保留最近一次结果，从没清理\n}\n```",
+    "ref": "`History` 是带 `UPROPERTY` 的强引用容器，每帧塞一个新建对象且从不移除，等于把所有临时对象都钉在引用图上：对象数量随时间线性增长，而 GC 单次耗时大致与对象数量成正比，所以标记清扫一轮比一轮久。修正：只需要最新一份就改成单个成员 `UPROPERTY() TObjectPtr<UMyTempData> Latest;`，每帧覆盖（旧对象失去引用即可被回收）；确实要历史就设上限（环形缓冲或 `RemoveAt` 到固定长度），或直接改用普通结构体、对象池复用。",
+    "explain": "GC 的「泄漏」几乎总是还有一条强引用链，`UPROPERTY` 容器是最常见的元凶之一。判断方法是用 `obj list -countsort` 看该类计数是否只增不减，再用 `obj refs name=...` 追到 `History` 这条边。判分要点是指出容器累积导致对象常驻，并给出覆盖式复用或带上限的环形缓冲；只答「手动调 GC」不解决根因，被强引用的对象无论如何都回收不了。"
+  },
+  {
+    "id": "ue8-x52",
+    "cat": "ue8",
+    "unit": 52,
+    "unitTitle": "Q52 内存分析有哪些手段",
+    "type": "code",
+    "diff": 2,
+    "q": "需要一个调试工具：统计当前所有 UObject 按类计数，打印数量最多的前 N 类，供两次快照对比。补全函数体，并说明为什么必须跳过 CDO、以及如何用两次快照判断是否泄漏：\n\n```cpp\n#include \"UObject/UObjectIterator.h\"\n\nstatic void DumpObjectCounts(int32 TopN)\n{\n    TMap<UClass*, int32> Counts;\n\n    // TODO: 遍历所有 UObject，跳过 CDO，按类计数\n\n    // TODO: 按数量从多到少排序\n\n    int32 Printed = 0;\n    for (const TPair<UClass*, int32>& Pair : Counts)\n    {\n        if (++Printed > TopN) { break; }\n        UE_LOG(LogTemp, Log, TEXT(\"%s : %d\"),\n            *Pair.Key->GetName(), Pair.Value);\n    }\n}\n```",
+    "ref": "计数部分：`for (TObjectIterator<UObject> It; It; ++It) { if (It->HasAnyFlags(RF_ClassDefaultObject)) { continue; } Counts.FindOrAdd(It->GetClass())++; }`。排序用 `Counts.ValueSort([](int32 A, int32 B) { return A > B; });`，之后按遍历顺序打印前 TopN。必须跳过 CDO，因为每个类都有一个常驻的 ClassDefaultObject，不滤掉会让所有类计数都多 1，掩盖真正的增长项。判断泄漏：同一关卡、同一画质做同一件事两次，操作前后各调一次本函数，看第二次结束的计数是否回到第一次基线；不回落才继续用 `obj refs` 追引用链。",
+    "explain": "`TObjectIterator` 遍历当前进程里所有存活 UObject，包含 CDO、编辑器预览对象等干扰项，所以要显式过滤 `RF_ClassDefaultObject`。工具的价值不在单次快照而在两次快照的差：单次数字只能描述现状，是否泄漏要看「同一操作结束后基线是否回落」。判分要点是写对遍历与 CDO 过滤、用 `FindOrAdd(...)++` 计数、用 `ValueSort` 降序，并强调两次对比口径一致。"
+  },
+  {
+    "id": "ue8-x53",
+    "cat": "ue8",
+    "unit": 53,
+    "unitTitle": "Q53 CPU 性能怎么定位",
+    "type": "code",
+    "diff": 2,
+    "q": "一个轻量函数在循环里被调用 5 万次，stat unit 的 Game 明显上涨，但 Unreal Insights 的采样里几乎找不到这个函数。解释原因，并说明怎样在不污染结果的前提下确认它的总耗时：\n\n```cpp\nstatic FORCEINLINE void StepOne(int32 Index)\n{\n    // 约 0.2 微秒的轻量计算\n    GWork[Index] = GWork[Index] * 1.0001f + 0.5f;\n}\n\nvoid UMySystem::Tick()\n{\n    const int32 Count = 50000;\n    for (int32 i = 0; i < Count; ++i)\n    {\n        StepOne(i);          // 单次很短，累计很长\n    }\n}\n```",
+    "ref": "采样按固定间隔抓调用栈，单次只有零点几微秒的函数大概率没被采到，5 万次累计却约有 10 毫秒，于是「采样看不见、帧时间在涨」。确认方法是在**循环外层**插一个聚合埋点：`SCOPE_CYCLE_COUNTER(STAT_MySystemTick);` 进 `stat game` 按组看，或 `TRACE_CPUPROFILER_EVENT_SCOPE(MySystem_Tick);` 进 Insights 时间线，两边耗时都应接近 10ms。不要在每个 `StepOne` 里插桩——5 万个 scope 自身的开销和缓存扰动会让结果失真；必要时把内层改成分批加 `ParallelFor` 再复测。",
+    "explain": "采样与插桩有互补的盲区：采样无侵入，但对「短函数 × 高频次」不敏感；插桩精确，但埋点密度本身会改变时序。正确顺序是先用 `stat unit` 判断瓶颈线程、`stat game` 缩小到系统，再在可疑段落的外层插一层，用两边耗时互相印证。判分要点是说出采样会漏掉短函数、给出外层聚合埋点、并指出不要逐次插桩；只答「用 Profiler 看看」不算。"
+  },
+  {
+    "id": "ue8-x54",
+    "cat": "ue8",
+    "unit": 54,
+    "unitTitle": "Q54 大资源怎么加载才不卡",
+    "type": "code",
+    "diff": 3,
+    "q": "武器类只通过软引用被加载，PIE 里一切正常，打包后的版本 SpawnWeapon 一直打印 Load failed。解释原因，并给出保证资产被打进包的两种做法：\n\n```cpp\nUPROPERTY(EditDefaultsOnly, Category = \"Loadout\")\nTSoftClassPtr<AActor> WeaponClass;\n\nvoid AMyLoadout::SpawnWeapon()\n{\n    UClass* LoadedClass = WeaponClass.LoadSynchronous();\n    if (!LoadedClass)\n    {\n        UE_LOG(LogTemp, Error, TEXT(\"[Loadout] Load failed\"));\n        return;\n    }\n    GetWorld()->SpawnActor<AActor>(LoadedClass, SpawnTransform);\n}\n```",
+    "ref": "`TSoftClassPtr` 只是一条路径字符串，不构成加载依赖。cook 阶段按硬引用和资产管理器规则收集资产，如果这个蓝图既没有被任何硬引用指向、也没被 `PrimaryAssetTypesToScan` / `DirectoriesToAlwaysCook` 收录，它就不会进包，运行期 `LoadSynchronous` 自然返回 nullptr；PIE 直接读工程内容，所以看不出问题。修正：① 把它登记为 PrimaryAsset（AssetManager 扫描规则）或加进 AlwaysCook 目录；② 让某个一定被 cook 的资产（如默认武器 DataAsset）硬引用它。另外运行期别用 `LoadSynchronous`，改用 `RequestAsyncLoad` 并把返回的 handle 存成成员。",
+    "explain": "软引用把「何时加载」推迟到运行期，代价是包的完整性不再由编译器保证，这是「编辑器/PIE 正常、打包后资源莫名不存在」的典型来源。排查第一步应看 cook 日志里有没有该资产的记录，而不是先怀疑加载代码。判分要点是指出纯软引用可能不被 cook、给出资产管理器或硬引用兜底的具体做法，并顺带指出同步加载会阻塞主线程。"
+  },
+  {
+    "id": "ue8-x55",
+    "cat": "ue8",
+    "unit": 55,
+    "unitTitle": "Q55 内存泄漏怎么排查",
+    "type": "code",
+    "diff": 2,
+    "q": "一个非 UObject 的缓冲区每次 Append 都重新分配内存。长时间运行后进程内存持续上涨，但 obj list 的类计数稳定、memreport 里的 UObject 也看不出增长。解释原因并修正：\n\n```cpp\nclass FMyPacketBuffer\n{\npublic:\n    void Append(const uint8* Data, int32 Size)\n    {\n        uint8* NewRaw = static_cast<uint8*>(FMemory::Malloc(Size));\n        FMemory::Memcpy(NewRaw, Data, Size);\n        Raw = NewRaw;            // 旧块直接丢了\n        RawSize = Size;\n    }\n\n    ~FMyPacketBuffer() { FMemory::Free(Raw); }\n\nprivate:\n    uint8* Raw = nullptr;\n    int32 RawSize = 0;\n};\n```",
+    "ref": "这是原生内存泄漏，不经过 GC：每次 `Append` 都用 `FMemory::Malloc` 申请新块并把 `Raw` 指向它，上一块再没有任何指针指向、也没有 `FMemory::Free`，于是每调用一次就漏一块；析构只释放最后一块。修正：赋值前先 `if (Raw) { FMemory::Free(Raw); }` 再 `Raw = NewRaw;`。更稳妥的是直接用容器：`TArray<uint8> Raw;`，`Append` 里 `Raw.Reset(); Raw.Append(Data, Size);`，由 `TArray` 管分配释放，还能用 `Reserve` 减少重分配。定位这类问题要靠平台内存工具或 LLM 看分配点，`obj list` / `obj refs` 完全看不到。",
+    "explain": "UObject 的「泄漏」是引用链，原生内存的「泄漏」是分配与释放不配对，两条线要用两套工具。表征是进程 RSS 持续上涨而 UObject 计数稳定，这时再查 `obj list` 只会白费时间。判分要点是识别这是原生泄漏、给出先释放再赋值或改用 `TArray` 的修法，并指出必须用原生内存工具定位。若缓冲区长期复用，还要考虑 `Reserve` 与容量上限，避免「修好泄漏但每次重分配」。"
+  }
+]

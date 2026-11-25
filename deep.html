@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:," />
+<title>深读 · C++ / UEC++ 基础知识</title>
+<meta name="description" content="C++ 与 Unreal Engine C++ 面试基础知识深读：15 章 122 单元，按单元阅读，可与速背卡、检测题互链。" />
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="deep.css" />
+</head>
+<body class="deep-page" data-page="deep">
+<div class="bg-grid" aria-hidden="true"></div>
+
+<header class="app-header">
+  <button class="icon-btn menu-btn" id="menuBtn" aria-label="打开章节目录">☰</button>
+  <a class="brand" href="index.html" title="返回速背卡片">
+    <div class="brand-mark">D<span>·</span></div>
+    <div class="brand-text">
+      <h1 id="deepBrand">深读 · 基础知识</h1>
+      <p id="deepSub">15 章 · 122 单元 · 本质 / 实战 / 面试讲法 / 真实坑 / 练习</p>
+    </div>
+  </a>
+  <nav class="page-switch">
+    <a href="index.html">速背卡</a>
+    <a class="active" href="deep.html">深读</a>
+    <a href="quiz.html">检测题</a>
+  </nav>
+  <div class="header-stats">
+    <div id="dirSwitch"></div>
+    <button class="icon-btn deep-search-btn" id="searchBtn" aria-label="搜索深读单元" title="搜索单元">⌕</button>
+    <button class="icon-btn" id="themeBtn" aria-label="切换主题" title="切换明暗主题">◐</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="rail-head">
+      <div>
+        <p class="rail-eyebrow">深读</p>
+        <h2 class="rail-title">章节目录</h2>
+      </div>
+      <button class="icon-btn close-btn" id="closeBtn" aria-label="关闭">×</button>
+    </div>
+
+    <div class="sidebar-head">
+      <input id="deepSearch" class="search" type="search" placeholder="搜索单元标题 / 关键词…" autocomplete="off" />
+    </div>
+
+    <div class="rail-block deep-prio-block">
+      <div class="rail-label">面试频次</div>
+      <div class="chip-row" id="deepPrio">
+        <button type="button" class="chip active" data-p="all">全部</button>
+        <button type="button" class="chip" data-p="P0">P0</button>
+        <button type="button" class="chip" data-p="P1">P1</button>
+        <button type="button" class="chip" data-p="P2">P2</button>
+      </div>
+      <p class="deep-prio-hint" id="deepPrioHint">P0 为三天精读范围</p>
+    </div>
+
+    <div class="rail-block deep-toc-block">
+      <div id="deepToc" class="deep-toc"></div>
+      <div id="deepResults" class="deep-results" hidden></div>
+    </div>
+
+    <div class="sidebar-foot deep-foot" id="deepFoot"></div>
+  </aside>
+
+  <div class="scrim" id="scrim"></div>
+
+  <main class="stage deep-stage">
+    <div class="stage-bar">
+      <button type="button" class="deep-crumb" id="deepCrumb" aria-label="打开章节目录">—</button>
+      <div class="deck-info"><span id="deepPos">0 / 0</span></div>
+    </div>
+
+    <article class="deep-article" id="deepArticle">加载中…</article>
+
+    <div class="empty card" id="deepEmpty" hidden>
+      <h3>这个单元还没有内容</h3>
+      <p>换一个单元，或重新运行 node tools/deep.js 检查内容源。</p>
+    </div>
+
+    <div class="stage-nav">
+      <button class="nav-btn" id="prevUnit">← 上一单元</button>
+      <span class="kbd-hint">←/→ 切换单元 · / 聚焦搜索</span>
+      <button class="nav-btn" id="nextUnit">下一单元 →</button>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="dist/dirs.js"></script>
+<script src="store.js"></script>
+<script src="markdown.js"></script>
+<script src="deep.js"></script>
+<script src="boot.js"></script>
+</body>
+</html>

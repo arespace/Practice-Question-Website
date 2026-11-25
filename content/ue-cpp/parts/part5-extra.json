@@ -1,0 +1,156 @@
+[
+  {
+    "id": "ue1-x01",
+    "cat": "ue1",
+    "unit": 1,
+    "unitTitle": "Q01 UObject 的完整生命周期",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的 Actor 构造函数能编译通过，但初始化逻辑不生效，还可能产生多余对象。请指出两处违规，并说明 CDO 阶段会发生什么：\n\n```cpp\nUCLASS()\nclass AMySpawner : public AActor\n{\n    GENERATED_BODY()\npublic:\n    AMySpawner()\n    {\n        if (UWorld* World = GetWorld())\n        {\n            UMyData* Data = NewObject<UMyData>(this);\n            Data->Init(World->GetAuthGameMode());\n        }\n    }\n};\n```",
+    "ref": "两处违规是构造函数里调用 `GetWorld()` 和 `NewObject`。① 构造函数会给 CDO 执行一次、再给每个实例执行一次；CDO 没有 World，`GetWorld()` 返回空，整个 if 分支在 CDO 阶段被跳过，依赖 World 的初始化不会按预期执行。② `NewObject` 在 CDO 构造时也会执行，产生多余对象甚至递归。正确做法：构造函数只放默认值和 `CreateDefaultSubobject`；不依赖 World 的初始化放 `PostInitProperties`，依赖 World 的放 `BeginPlay`。",
+    "explain": "判分要点是识别“构造函数会被 CDO 和实例各执行一次”这一前提，以及 `GetWorld`、`NewObject` 在 CDO 阶段都不可用。构造函数里访问 World、SpawnActor、NewObject 是原文列的典型坑：CDO 阶段 World 为空，静默拿到空值或直接崩；默认子对象只能用 `CreateDefaultSubobject`。只答“构造函数只执行一次”会失分。"
+  },
+  {
+    "id": "ue1-x02",
+    "cat": "ue1",
+    "unit": 2,
+    "unitTitle": "Q02 GC 如何判定 UObject 可达",
+    "type": "code",
+    "diff": 3,
+    "q": "有一个非 UObject 的普通 C++ 缓存类持有 `UMyData*`，运行一段时间后访问该指针崩溃。请说明原因，并写出让 GC 能看见这条引用的关键实现：\n\n```cpp\nclass FMyCache\n{\npublic:\n    void Store(UMyData* In) { Cached = In; }\n    UMyData* Get() const { return Cached; }\n\nprivate:\n    UMyData* Cached = nullptr;\n};\n\n// 使用处\nCache.Store(NewObject<UMyData>(Owner));\n```",
+    "ref": "普通 C++ 类不在 GC 图里：GC 只从根集出发、沿 `FProperty` 登记的引用边遍历，`FMyCache` 既不是 `UObject` 也没注册，`Cached` 这条边不成立，对象会被回收，`Get()` 返回悬垂指针。关键实现是让缓存继承 `FGCObject`：`class FMyCache : public FGCObject`，重写 `virtual void AddReferencedObjects(FReferenceCollector& Collector) override { Collector.AddReferencedObject(Cached); }`，再实现 `virtual FString GetReferencerName() const override { return TEXT(\"FMyCache\"); }`。`FGCObject` 构造时会自动注册到全局引用收集器，GC 就会顺着这条边访问 `Cached`。",
+    "explain": "考点是“非 UObject 持有者如何进入 GC 图”。GC 不扫描线程栈、也不认普通 C++ 成员，只认 `UObject` 上的 `FProperty` 边和通过 `FGCObject` 登记的持有者。易错点：给普通类成员加 `UPROPERTY` 是无效的（非 UCLASS/USTRUCT 不生成属性表）；`TWeakObjectPtr` 在这里也不保活。判分看是否写出 `FGCObject` + `AddReferencedObjects`。"
+  },
+  {
+    "id": "ue1-x03",
+    "cat": "ue1",
+    "unit": 3,
+    "unitTitle": "Q03 为什么 UPROPERTY 是必要的",
+    "type": "code",
+    "diff": 2,
+    "q": "下面是一个带 `Transient` 标记的组件成员，代码在强制 GC 后打印两个值。请写出日志输出，并说明 `Transient` 是否影响 GC 可达性：\n\n```cpp\nUPROPERTY(Transient)\nTObjectPtr<UMyItem> Selected = nullptr;\n\nvoid UMyInventory::Pick()\n{\n    UMyItem* Raw = NewObject<UMyItem>(this, TEXT(\"Item\"));\n    Selected = Raw;\n\n    GEngine->ForceGarbageCollection(true);\n    UE_LOG(LogTemp, Log, TEXT(\"selected=%d rawNull=%d\"),\n        IsValid(Selected), Raw == nullptr ? 1 : 0);\n}\n```",
+    "ref": "期望输出 `selected=1 rawNull=0`。`Transient` 只让序列化器跳过这个成员，不改变引用边：`UPROPERTY` 已把 `Selected` 登记成 `FProperty`，GC 仍会沿它找到 `UMyItem`，所以强制 GC 后对象依然有效。`Raw` 是裸指针，GC 回收内存不会把它置空，因此 `rawNull` 为 0，这也说明判断可用性必须用 `IsValid` 而不是 `== nullptr`。若把 `Transient` 当成“不参与 GC”，就会误判成 `selected=0`。",
+    "explain": "`UPROPERTY` 的多个子系统标记互相独立：`Transient` 管序列化，`Replicated` 管网络，都不改变 GC 可达性；保活只取决于有没有引用边。本题的第二个易错点是裸指针不会因回收变空，`IsValid` 才能识别待回收或已失效状态。判分要点：日志必须同时答对 1 和 0，并明确 `Transient` 仍进 GC 图。"
+  },
+  {
+    "id": "ue1-x04",
+    "cat": "ue1",
+    "unit": 4,
+    "unitTitle": "Q04 三个对象创建 API 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段代码想在 Actor 运行时动态添加一个组件，运行后在开发构建里直接触发断言。请说明原因，并给出运行期动态加组件的正确写法：\n\n```cpp\nvoid AMySpawner::BeginPlay()\n{\n    Super::BeginPlay();\n\n    USceneComponent* Probe =\n        CreateDefaultSubobject<USceneComponent>(TEXT(\"Probe\"));\n    Probe->SetupAttachment(RootComponent);\n}\n```",
+    "ref": "`CreateDefaultSubobject` 只能在构造函数里用：它要同时为 CDO 和实例创建默认子对象，运行期调用会触发 check/ensure 断言（开发构建直接崩）。运行期动态加组件应改为 `NewObject` + 注册：`USceneComponent* Probe = NewObject<USceneComponent>(this, TEXT(\"Probe\"));`，随后 `Probe->SetupAttachment(RootComponent);`（或 `AttachToComponent`）并 `Probe->RegisterComponent();`，需要的话再 `AddInstanceComponent(Probe)`。默认组件仍应放构造函数并用 `CreateDefaultSubobject`。",
+    "explain": "考点是“默认子对象只能在构造上下文创建”。CDO 也走构造函数，`CreateDefaultSubobject` 正是靠这一点把默认组件同时写进 CDO 和每个实例；离开构造期它没有合法的 CDO 可写，只能断言。易错点：以为 `NewObject` 造出组件就能直接挂，忘了 `RegisterComponent` 后组件才真正生效。判分看是否指出构造期限制并给出 NewObject + 注册的替代。"
+  },
+  {
+    "id": "ue1-x05",
+    "cat": "ue1",
+    "unit": 5,
+    "unitTitle": "Q05 为什么 UObject 不能用 new/delete",
+    "type": "code",
+    "diff": 3,
+    "q": "有人用 `std::shared_ptr` 缓存一个由 `NewObject` 创建的 UObject，线上偶发崩溃，日志显示销毁阶段异常。请指出所有权问题，并给出符合 UE5 的替代方案：\n\n```cpp\nstd::shared_ptr<UMyData> GSharedCache;\n\nvoid UMyService::Cache(UMyData* In)\n{\n    GSharedCache.reset(In);   // In 来自 NewObject<UMyData>(this)\n}\n```",
+    "ref": "`std::shared_ptr` 会对 `UMyData` 调 `delete`，而 UObject 的回收必须由 GC 走 `BeginDestroy` → `FinishDestroy` 两段协议；两套所有权同时存在，shared_ptr 析构时绕过销毁协议，可能异步资源泄漏或与 GC 竞争导致 double free。另外 GC 可能先把对象回收，shared_ptr 仍非空，访问同样是悬垂。正确做法：非 UObject 持有者用 `TStrongObjectPtr<UMyData>`（内部把对象加入根集并负责释放），或让持有者本身是 UObject 并用 `UPROPERTY() TObjectPtr<UMyData>`；只观察用 `TWeakObjectPtr`。",
+    "explain": "考点是“GC 与 shared_ptr 两套所有权会打架”，原文把它列为真实坑。UObject 的分配与销毁必须走引擎路径，`delete` 会跳过两段销毁；`TStrongObjectPtr` 是给非 UObject 持有者准备的强引用包装（等价于把对象 root 住），UObject 内部成员则用 `UPROPERTY` 登记引用边。判分要点：既要说出 double free 或绕过销毁协议，也要给出可用替代而不是只说“别这么写”。"
+  },
+  {
+    "id": "ue1-x06",
+    "cat": "ue1",
+    "unit": 6,
+    "unitTitle": "Q06 Outer 与对象命名",
+    "type": "code",
+    "diff": 2,
+    "q": "下面创建的对象用于运行期临时数据，同一 Outer 下还可能批量创建同名对象。请写出 `GetPathName()` 的路径前缀，并说明它会不会被打进包：\n\n```cpp\nUProbeObject* T = NewObject<UProbeObject>(GetTransientPackage());\nUE_LOG(LogTemp, Log, TEXT(\"path=%s outer=%s\"),\n    *T->GetPathName(),\n    *T->GetOuter()->GetName());\n```",
+    "ref": "输出形如 `path=/Engine/Transient.UProbeObject outer=Transient`：`GetTransientPackage()` 返回 transient 包，路径前缀固定为 `/Engine/Transient`，Outer 名字是 `Transient`。它带 transient 语义，对象不会被打进包、也不会被存盘，适合运行期临时数据。反过来说，需要存盘或需要稳定路径的数据不能用它当 Outer，否则打包后数据丢失。若同一 Outer 下要批量创建，还要用 `MakeUniqueObjectName` 或显式传唯一名避免重名。",
+    "explain": "考点是 Outer 决定路径与加载归属。`GetTransientPackage()` 的路径是 `/Engine/Transient`，对象不进包，这是“归属链在字符串里就能读出来”的典型例子。易错点：一是把 transient 包当普通 Outer 存需要存盘的数据；二是以为“挂在外层对象下就会被保活”，Outer 不是强引用边。判分看路径前缀与“不存盘”两个结论是否都给对。"
+  },
+  {
+    "id": "ue1-x07",
+    "cat": "ue1",
+    "unit": 7,
+    "unitTitle": "Q07 GC 卡顿的来源与优化",
+    "type": "code",
+    "diff": 3,
+    "q": "下面这段在一帧内清理整波敌人的代码会造成明显的 GC 尖峰。请指出尖峰落在哪一段、为什么调大 GC 预算也压不住，并给出改法：\n\n```cpp\nvoid AMyWave::OnWaveEnd()\n{\n    for (AMyEnemy* E : Enemies)\n    {\n        E->Destroy();\n    }\n    Enemies.Reset();\n}\n```",
+    "ref": "尖峰落在 GC 的清理阶段：几百个 Actor 在同一帧被 `Destroy` 标记待回收，随后同一批进入销毁与内存释放，清理工作量集中在一帧；标记虽被增量 GC 拆到多帧，但总工作量仍由对象数 × 引用数决定，调大每帧预算只改变切片、不减少总量，所以压不住集中死亡造成的尖峰。改法：把销毁拆到多帧分批执行（每帧固定上限，或用队列、计时器摊开），或改用对象池复用、减少同一帧的死亡数量。",
+    "explain": "考点是成本模型与两段式 GC：标记沿引用图遍历，清理负责销毁与释放；`Destroy` 只是标记，真正成本落在清理。原文把“一帧内批量 Spawn/Destroy”列为真实坑，并强调调参只改切片方式、不改总工作量。易错点：以为开了增量 GC 就没有尖峰。判分看是否答出“清理阶段”和“拆帧或池化”两点。"
+  },
+  {
+    "id": "ue1-x08",
+    "cat": "ue1",
+    "unit": 8,
+    "unitTitle": "Q08 UObject 与 Actor 的销毁差异",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段清场逻辑在敌人较多时会随机漏掉一部分，个别时候还会崩溃。请指出问题所在，并给出遍历中安全销毁全部 Actor 的正确写法：\n\n```cpp\nvoid AMyWave::ClearAllEnemies()\n{\n    for (TActorIterator<AMyEnemy> It(GetWorld()); It; ++It)\n    {\n        It->Destroy();\n    }\n}\n```",
+    "ref": "在迭代器遍历过程中直接 `Destroy` 会让 `TActorIterator` 失效：World 的 Actor 列表在遍历期间被修改，可能跳过元素、重复处理，甚至崩溃。正确做法是先收集再销毁：`TArray<TObjectPtr<AMyEnemy>> Doomed;` 在循环里 `Doomed.Add(*It);`，循环结束后再遍历 `Doomed` 逐个 `Destroy()`，销毁前用 `IsValid` 判一下。注意 `Destroy` 后裸指针通常仍非空，判活要用 `IsValid`，不要用 `if (E)`。",
+    "explain": "考点是“边遍历边销毁导致迭代器失效”，原文把它列为真实坑。`TActorIterator` 依赖 World 的 Actor 数组，`Destroy` 会改变这个数组；先收集后销毁是通用写法。另一个易错点是 `Destroy` 只标记待回收、内存等 GC，因此裸指针不会立刻变空，必须用 `IsValid` 或弱指针判断。判分看是否指出迭代器失效并给出两段式写法。"
+  },
+  {
+    "id": "ue2-x09",
+    "cat": "ue2",
+    "unit": 9,
+    "unitTitle": "Q09 UCLASS/UPROPERTY/UFUNCTION 的分工",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这个“拾取时通知蓝图”的实现构建失败，报的是重复定义。请指出错误原因，并改写成既允许蓝图重写、又能保留 C++ 默认逻辑的版本：\n\n```cpp\n// Pickup.h\nUFUNCTION(BlueprintImplementableEvent, Category = \"Pickup\")\nvoid OnCollected(AActor* Collector);\n\n// Pickup.cpp\nvoid APickup::OnCollected(AActor* Collector)\n{\n    UE_LOG(LogTemp, Log, TEXT(\"Collected\"));\n}\n```",
+    "ref": "`BlueprintImplementableEvent` 只能由蓝图实现，UHT 会在生成代码里给出该函数的定义（事件存根），C++ 再手写一份实现就是重复定义，构建直接失败。要“C++ 有默认实现 + 蓝图可覆盖”，应改用 `BlueprintNativeEvent`：声明 `UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = \"Pickup\") void OnCollected(AActor* Collector);`，实现写在 `void APickup::OnCollected_Implementation(AActor* Collector)` 里。只想通知蓝图、C++ 不需要默认逻辑时，保持 `BlueprintImplementableEvent` 并删掉 cpp 里的实现。",
+    "explain": "考点是两种蓝图事件的职责边界：`BlueprintImplementableEvent` 与 `BlueprintNativeEvent` 都由 UHT 生成事件存根，区别在于后者多一个 `_Implementation` 让你写 C++ 默认实现。易错点是在 C++ 里给 `BlueprintImplementableEvent` 写函数体，报的是重复定义或链接错误，看起来和“函数没实现”正好相反。判分看是否指出重复定义并给出 `BlueprintNativeEvent` + `_Implementation`。"
+  },
+  {
+    "id": "ue2-x10",
+    "cat": "ue2",
+    "unit": 10,
+    "unitTitle": "Q10 generated.h 为什么必须最后 include",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的头文件为了“拿到 B 类型的声明”，直接 include 了另一个类的生成物，构建报重复定义。请说明 generated.h 的使用规则，并给出正确写法：\n\n```cpp\n// AThing.h\n#pragma once\n#include \"CoreMinimal.h\"\n#include \"BThing.generated.h\"   // 直接引入别人的生成物\n#include \"AThing.generated.h\"\n\nUCLASS()\nclass AThing : public UObject\n{\n    GENERATED_BODY()\npublic:\n    UPROPERTY() TObjectPtr<class BThing> Other = nullptr;\n};\n```",
+    "ref": "每个 `X.generated.h` 只服务自己的头文件，里面是 `GENERATED_BODY` 的展开、`Super` 别名和本文件的属性、函数注册声明；把它拉进 `AThing.h` 会与 `AThing.generated.h` 产生重复声明和宏别名冲突，构建报重复定义。正确写法是只 include B 的普通头文件 `#include \"BThing.h\"`（它内部会 include 自己的 `BThing.generated.h`），或者用前向声明 `class BThing;` 配合 `TObjectPtr<class BThing>`，永远不要直接 include 别的头文件的 generated.h。",
+    "explain": "考点是“生成文件与源头文件一一对应”。`generated.h` 是声明补丁，必须紧跟在自己头文件的类型声明之前展开；交叉 include 会让两套补丁在同一翻译单元里互相污染。易错点：把 generated.h 当普通公共头文件共享。判分看是否指出“一对一、不能交叉 include”，并给出 include BThing.h 或前向声明的正解。"
+  },
+  {
+    "id": "ue2-x11",
+    "cat": "ue2",
+    "unit": 11,
+    "unitTitle": "Q11 UHT 的工作流程",
+    "type": "code",
+    "diff": 2,
+    "q": "有人把 `BlueprintReadWrite` 拼成了 `BlueprintReadWirte`，构建失败。请指出报错发生在哪个阶段、C++ 编译器有没有启动，以及为什么：\n\n```cpp\nUPROPERTY(EditAnywhere, BlueprintReadWirte, Category = \"Health\")\nfloat Health = 100.f;\n```",
+    "ref": "报错发生在 UHT 阶段，C++ 编译器根本没有启动。UHT 在编译前独立运行，负责解析 `UCLASS`、`UPROPERTY`、`UFUNCTION` 的说明符并做语法与类型检查；遇到未知说明符 `BlueprintReadWirte` 直接报错，构建日志前半段出现 `UnrealHeaderTool failed for target ...` 的总结行。把拼写改回 `BlueprintReadWrite` 即可。判断阶段的诀窍：UHT 错在前半段且没有编译器错误码，C++ 或链接错在后半段。",
+    "explain": "考点是区分 UHT 阶段与 C++ 编译阶段。UHT 是构建管线里编译前的一步，输入是 UBT 收集的头文件列表，输出是 `generated.h` 与 `gen.cpp`；宏、说明符、类型白名单这类错误都归它。易错点：把说明符拼写错误当成“属性没生效”去查代码逻辑。判分看是否明确答出“UHT 阶段、编译器未启动”。"
+  },
+  {
+    "id": "ue2-x12",
+    "cat": "ue2",
+    "unit": 12,
+    "unitTitle": "Q12 反射系统能做什么",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这个用于调参的成员在编辑器里工作正常，打包成 cooked 版本后却在构建阶段失败。请说明原因，并给出运行期可用的正确做法：\n\n```cpp\nUCLASS()\nclass UMyComp : public UActorComponent\n{\n    GENERATED_BODY()\npublic:\n#if WITH_EDITORONLY_DATA\n    UPROPERTY(EditAnywhere, Category = \"Debug\")\n    int32 TuningParam = 3;\n#endif\n\n    float Compute() const { return Base * TuningParam; }\n\n    UPROPERTY(EditAnywhere) float Base = 1.f;\n};\n```",
+    "ref": "`WITH_EDITORONLY_DATA` 段在非编辑器（cooked/Shipping）构建里被预处理器整段剥掉，`TuningParam` 这个成员不存在，而 `Compute()` 仍在引用它，于是打包构建直接编译失败。即使只把宏写在 `UPROPERTY` 外层保留成员，它也不会进 cooked 的反射表，无法存盘或序列化。正确做法：运行期逻辑要读的参数改成普通 `UPROPERTY(EditAnywhere, Category = \"Tuning\") int32 TuningParam = 3;`，cooked 包里依然存在；`WITH_EDITORONLY_DATA` 只用于纯编辑器的调试或预览数据，且引用处也要一并包在同一条宏里。",
+    "explain": "考点是“编辑器专用数据在打包后被剥离”，原文把它列为真实坑。`WITH_EDITORONLY_DATA` 是编译期剥离，不是运行期开关，所以任何运行期逻辑都不应依赖它。易错点是编辑器 PIE 一切正常、打包后才暴露，且报错位置在引用处而非定义处。判分看是否指出预处理剥离导致构建失败，并给出普通 `UPROPERTY` 的替代。"
+  },
+  {
+    "id": "ue2-x13",
+    "cat": "ue2",
+    "unit": 13,
+    "unitTitle": "Q13 GENERATED_BODY 与 GENERATED_UCLASS_BODY",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段从 UE4 迁移过来的老代码，构建在链接期报找不到构造函数定义。请解释原因，并分别给出“保留老宏”和“迁移到新宏”两种修法：\n\n```cpp\nUCLASS()\nclass MYGAME_API ALegacyDoor : public AActor\n{\n    GENERATED_UCLASS_BODY()\npublic:\n    UPROPERTY(EditAnywhere, Category = \"Door\")\n    bool bLocked = false;\n};\n\nALegacyDoor::ALegacyDoor() {}\n```",
+    "ref": "报错是链接期的未解析外部符号，期望的是 `ALegacyDoor::ALegacyDoor(const FObjectInitializer&)`。`GENERATED_UCLASS_BODY()` 会自动插入 `public:` 和带 `FObjectInitializer` 的构造函数声明，作者只负责实现；这里却实现成了无参构造，声明与实现签名不匹配，所以链接失败。修法一（保留老宏）：实现改为 `ALegacyDoor::ALegacyDoor(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {}`。修法二（迁移到新宏）：换成 `GENERATED_BODY()`，自己声明 `ALegacyDoor();` 并保留现有无参实现，同时检查 `Super()` 实参。",
+    "explain": "考点是“老宏的构造函数声明不是作者写的”。`GENERATED_UCLASS_BODY` 自动给出 `public:` 和带 `FObjectInitializer` 的构造声明，所以实现必须严格匹配；`GENERATED_BODY` 不插入任何声明，构造与访问权限都要自己写。易错点是只换签名不换声明，或换宏后忘了补声明导致编译器生成默认构造、默认子对象全为空。判分看是否指出签名不匹配，并给出两种可行修法。"
+  },
+  {
+    "id": "ue2-x14",
+    "cat": "ue2",
+    "unit": 14,
+    "unitTitle": "Q14 反射系统的限制",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的 `USTRUCT` 想通过虚函数提供多态，构建在 UHT 阶段就失败。请指出原因，并说明确实需要运行时多态时应该怎么改：\n\n```cpp\nUSTRUCT(BlueprintType)\nstruct FDamageInfo\n{\n    GENERATED_BODY()\n\n    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = \"Damage\")\n    float Amount = 0.f;\n\n    virtual float GetAmount() const { return Amount; }\n};\n```",
+    "ref": "UHT 直接拒绝 `USTRUCT` 里的虚函数：结构体只承载数据，不支持虚表和继承，生成代码无法描述多态布局，报错发生在 UHT 阶段而不是 C++ 编译阶段。若不需要多态，把 `virtual` 去掉即可，普通成员函数可以保留。若确实需要运行时多态，应改用 `UObject` 子类承载行为，并配合 `UINTERFACE`（U 前缀类做反射登记、I 前缀类放纯虚函数）；数据仍可留在 `USTRUCT` 里，通过 `UPROPERTY` 组合进 `UObject`。",
+    "explain": "考点是反射限制里的“`USTRUCT` 不能有虚函数、不能继承”。这条限制来自 GC 与序列化需要按偏移安全遍历和拷贝内存，虚表会破坏这种静态布局假设。易错点：以为 C++ 能编过就没问题；实际 UHT 在编译前就拦下。判分看是否答出“UHT 阶段拒绝虚函数”，并给出“去 virtual”或“UObject + UINTERFACE”的正确替代。"
+  }
+]

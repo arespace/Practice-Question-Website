@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "dirs": [
+    {
+      "key": "ue-cpp",
+      "title": "C++ / UEC++",
+      "sections": [
+        {
+          "key": "cpp",
+          "name": "C++",
+          "color": "accent",
+          "unitLabel": "章",
+          "showUnitNo": true
+        },
+        {
+          "key": "ue",
+          "name": "UEC++",
+          "color": "accent-2",
+          "badgeFrom": "#0ea5a5",
+          "badgeTo": "#22b8a0",
+          "unitLabel": "主题",
+          "showUnitNo": false
+        }
+      ]
+    }
+  ]
+}

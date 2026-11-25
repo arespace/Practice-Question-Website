@@ -1,0 +1,431 @@
+[
+  {
+    "id": "ue1-001",
+    "cat": "ue1",
+    "unit": 1,
+    "unitTitle": "Q01 UObject 的完整生命周期",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 UObject 的生命周期，下列哪一项与原文一致？",
+    "options": [
+      "构造函数只会在类注册时执行一次，实例化时不再执行",
+      "CDO 在类注册时构造一次，实例化时再构造一次，所以构造函数只应放默认值",
+      "对象可以用 `delete` 回收，回收时仍会依次走 `BeginDestroy`、`FinishDestroy`",
+      "`BeginDestroy` 中可以安全访问 World 和其他 Actor，因为此时 World 一定还在"
+    ],
+    "answer": [1],
+    "explain": "CDO 是类注册时先造好的模板，每个实例化会再跑一次构造，所以构造函数只能放默认值，依赖 World 的初始化要放 `PostInitProperties` 或 `BeginPlay`。`delete` 绕过两段式销毁协议；`BeginDestroy` 阶段 World 可能已开始销毁、顺序不可控，因此另外两项都错。",
+    "src": "深读.md#ue-unit-01"
+  },
+  {
+    "id": "ue1-002",
+    "cat": "ue1",
+    "unit": 1,
+    "unitTitle": "Q01 UObject 的完整生命周期",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的生命周期钩子实现有两处与原文要求不符，请指出并改正：\n\nvirtual void PostInitProperties() override\n{\n    UE_LOG(LogTemp, Log, TEXT(\"PostInitProperties\"));\n}\n\nvirtual void BeginDestroy() override\n{\n    Super::BeginDestroy();\n    ReleaseMyResource();\n}",
+    "ref": "① `PostInitProperties` 必须先调 `Super::PostInitProperties()`，再写自己的逻辑；② `BeginDestroy` 应先释放自己的同步资源、发起异步释放，最后才调 `Super::BeginDestroy()`（原文明确：释放同步资源时 `Super` 放最后）。改正后：`PostInitProperties` 首行补 `Super::PostInitProperties();`；`BeginDestroy` 改为先 `ReleaseMyResource();` 再 `Super::BeginDestroy();`。",
+    "explain": "两个钩子的 `Super` 位置不对称：初始化要先让父类完成属性初始化，销毁则先做完自己的资源释放再交给父类，否则资源释放顺序会乱，造成泄漏或提前释放。原文提示即“两个钩子里都要先调 `Super::`（`BeginDestroy` 里 `Super` 放最后）”。",
+    "src": "深读.md#ue-unit-01"
+  },
+  {
+    "id": "ue1-003",
+    "cat": "ue1",
+    "unit": 2,
+    "unitTitle": "Q02 GC 如何判定 UObject 可达",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 UE 的 GC 可达性判定，下列哪些说法正确？（多选）",
+    "options": [
+      "函数里的裸局部指针不是根，UE 不扫描线程栈",
+      "只要对象挂在某个 Outer 下，就一定不会被回收",
+      "只有 `UPROPERTY` 等反射可见的引用边才会被 GC 遍历",
+      "循环引用一定会泄漏，不可达的环也无法回收",
+      "`TWeakObjectPtr` 只记录弱引用，不会阻止对象被回收"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "根集是 CDO、`AddToRoot` 的对象和引擎核心对象，GC 只沿 `FProperty` 登记的引用边做图遍历；UE 不扫描线程栈，Outer 也不是强引用边，所以第 2、4 项是原文列的常见误解。标记-清除按可达性判定，不可达的环会整组回收，只有被根挂住的环才泄漏。",
+    "src": "深读.md#ue-unit-02"
+  },
+  {
+    "id": "ue1-004",
+    "cat": "ue1",
+    "unit": 2,
+    "unitTitle": "Q02 GC 如何判定 UObject 可达",
+    "type": "code",
+    "diff": 2,
+    "q": "阅读下面的对照实验，写出日志 `strong` 与 `weak` 的期望值，并说明原因：\n\nUPROPERTY() TObjectPtr<UProbePayload> KeepAlive =\n    NewObject<UProbePayload>(this, TEXT(\"Kept\"));\nTWeakObjectPtr<UProbePayload> WeakOnly =\n    NewObject<UProbePayload>(this, TEXT(\"Weak\"));\n\nGEngine->ForceGarbageCollection(true);\nUE_LOG(LogTemp, Log, TEXT(\"strong=%d weak=%d\"),\n    IsValid(KeepAlive), WeakOnly.IsValid());",
+    "ref": "期望输出 `strong=1 weak=0`（原文验收标准即 `1/0`）。`KeepAlive` 标了 `UPROPERTY`，登记了一条引用边，强制 GC 后仍可达；`WeakOnly` 是 `TWeakObjectPtr`，只记录弱引用、不产生引用边，指向的对象没有其他强引用，强制 GC 后失效。",
+    "explain": "两组的唯一差别就是“有没有引用边”：把 `WeakOnly` 换成 `UPROPERTY() TObjectPtr` 再跑，日志会从 `1/0` 变成 `1/1`。弱指针只观察不保活，且不要对可能已回收的裸指针调 `IsValid`，应统一用弱指针观察存活。",
+    "src": "深读.md#ue-unit-02"
+  },
+  {
+    "id": "ue1-005",
+    "cat": "ue1",
+    "unit": 3,
+    "unitTitle": "Q03 为什么 UPROPERTY 是必要的",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `UPROPERTY` 的作用与开销，下列哪些说法正确？（多选）",
+    "options": [
+      "`UPROPERTY` 让 UHT 生成 `FProperty` 元数据，把这个成员登记成一条 GC 引用边",
+      "成员标了 `UPROPERTY` 就一定会被存盘，与 `Transient`、`SaveGame` 等标记无关",
+      "标了 `UPROPERTY` 后每次成员读写都会比裸成员慢，因为要经过反射",
+      "`Transient` 只让序列化跳过，引用边仍在，对象照样被保活",
+      "`TObjectPtr` 即使不标 `UPROPERTY` 也能被 GC 看见"
+    ],
+    "answer": [0, 3],
+    "explain": "`UPROPERTY` 是给 UHT 的标记，登记成 `FProperty` 后 GC、序列化、蓝图、网络和编辑器共读一份元数据；普通成员读写没有额外成本，开销集中在 GC 遍历和反射调用。是否存盘还要看 `Transient`、`SaveGame` 等标记；`TObjectPtr` 只是访问包装，不标就没有引用边。",
+    "src": "深读.md#ue-unit-03"
+  },
+  {
+    "id": "ue1-006",
+    "cat": "ue1",
+    "unit": 3,
+    "unitTitle": "Q03 为什么 UPROPERTY 是必要的",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的头文件片段有两处会直接导致 UHT 或编译失败，请指出：\n\n#pragma once\n#include \"MyInventory.generated.h\"\n#include \"CoreMinimal.h\"\n#include \"Components/ActorComponent.h\"\n\nUCLASS()\nclass UMyInventory : public UActorComponent\n{\npublic:\n    UPROPERTY(EditAnywhere, Category = \"Inventory\")\n    TArray<TObjectPtr<UMyItem>> Items;\n    GENERATED_BODY()\n};",
+    "ref": "① `MyInventory.generated.h` 必须是本头文件最后一个 include，这里放在了最前；② `GENERATED_BODY()` 必须写在类体最前面，这里放在了成员之后。生成代码引用了上方声明的类型（`UActorComponent`、`UMyItem` 等），UHT 不负责补 `#include`，顺序颠倒时第一条错误往往落在生成文件内部。",
+    "explain": "`generated.h` 是“声明补丁”，展开时依赖上方已就位的类型；`GENERATED_BODY()` 要声明 `Super`、`StaticClass()` 等符号供后续成员使用。改法：把 generated.h 挪到所有 include 之后，把 `GENERATED_BODY()` 挪到类体第一行。",
+    "src": "深读.md#ue-unit-03"
+  },
+  {
+    "id": "ue1-007",
+    "cat": "ue1",
+    "unit": 4,
+    "unitTitle": "Q04 三个对象创建 API 的区别",
+    "type": "single",
+    "diff": 2,
+    "q": "用 `NewObject<AMyActor>(this)` 创建一个 AActor 类型的对象，结果是什么？",
+    "options": [
+      "与 `SpawnActor` 等价，会注册进 World 并调用 `BeginPlay`",
+      "能编译，但不进 World、不走生成流程、没有 `BeginPlay`，只是一个普通 UObject",
+      "编译报错，`NewObject` 不允许用于 AActor 类型",
+      "会进 World 但不注册组件，`BeginPlay` 正常调用"
+    ],
+    "answer": [1],
+    "explain": "`NewObject` 是最底层入口：分配、构造、`PostInitProperties`，根本不碰 World；`SpawnActor` 才走检查、分配、构造、注册组件、`PostInitializeComponents`，并在 World 已开始时调 `BeginPlay`。选错入口不会报错，只是对象缺了整段流程，所以原文说“不要这么干”。",
+    "src": "深读.md#ue-unit-04"
+  },
+  {
+    "id": "ue1-008",
+    "cat": "ue1",
+    "unit": 4,
+    "unitTitle": "Q04 三个对象创建 API 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的延迟生成代码有什么缺陷？生成出来的 Actor 会处于什么状态？\n\nAMyActor* Deferred = GetWorld()->SpawnActorDeferred<AMyActor>(\n    AMyActor::StaticClass(), FTransform::Identity);\nif (Deferred)\n{\n    Deferred->SetSomeProperty(42);\n}",
+    "ref": "缺少 `Deferred->FinishSpawning(FTransform::Identity);`。`SpawnActorDeferred` 只做生成流程的前半段，必须调 `FinishSpawning` 才会继续注册组件、走 `PostInitializeComponents`，并在 World 已开始时调 `BeginPlay`；漏掉后 Actor 永远不完成初始化，`BeginPlay` 也不会来。",
+    "explain": "原文真实坑明确“`SpawnActorDeferred` 忘了 `FinishSpawning`：Actor 永远不完成初始化，BeginPlay 也不会来”。想生成前设属性就用 Deferred + 设属性 + `FinishSpawning`，不要用 `SpawnActor` 事后补设置。",
+    "src": "深读.md#ue-unit-04"
+  },
+  {
+    "id": "ue1-009",
+    "cat": "ue1",
+    "unit": 5,
+    "unitTitle": "Q05 为什么 UObject 不能用 new/delete",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 UObject 的创建与销毁，下列哪些说法正确？（多选）",
+    "options": [
+      "`new` 只分配内存并调构造，不登记进全局对象表，也没有 UClass 初始化与 Outer/Flags",
+      "`delete` 会先走 `BeginDestroy` 发起异步释放，再调析构",
+      "`MarkAsGarbage` 只是标记待回收，真正的 `BeginDestroy` 等 GC 的时机",
+      "placement new 能把对象放进自定义内存池，并正确登记进 GC 图",
+      "主动销毁 Actor 应调用 `Actor->Destroy()`"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "`new` 只完成“分配 + 构造”一小段，缺 UClass 初始化、Outer/Flags 和对象表登记；`delete` 直接析构、跳过 `BeginDestroy`/`FinishDestroy`，异步资源没有释放窗口。placement new 只解决“内存从哪来”，不解决“对象怎么登记”；`MarkAsGarbage` 只负责标记，回收时机交给 GC。",
+    "src": "深读.md#ue-unit-05"
+  },
+  {
+    "id": "ue1-010",
+    "cat": "ue1",
+    "unit": 5,
+    "unitTitle": "Q05 为什么 UObject 不能用 new/delete",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的代码执行后 `BeginDestroyCount` 是多少？把最后两行注释打开又是什么结果？\n\nUDisposable* Ok = NewObject<UDisposable>(this);\nOk->MarkAsGarbage();\nGEngine->ForceGarbageCollection(true);\nUE_LOG(LogTemp, Log, TEXT(\"BeginDestroy=%d\"),\n    UDisposable::BeginDestroyCount);\n\n// UDisposable* Bad = new UDisposable();\n// delete Bad;",
+    "ref": "正确路径下期望 `BeginDestroy=1`：`NewObject` 让对象进对象表，`MarkAsGarbage` 标记后强制 GC 才会走 `BeginDestroy` → `FinishDestroy`。把 `new`/`delete` 打开后计数仍是 1（不再增加）：`delete` 直接析构、跳过两段销毁协议，异步资源没有释放窗口。原文验收标准即“正确路径加 1、new/delete 版本即使能编译也不增加”。",
+    "explain": "静态计数器只统计引擎有没有走销毁协议；`new` 出来的对象不在全局对象表里，GC 完全不知道它，`AddToRoot` 也救不回来。反例必须注释掉或用 `#if 0` 包住，`new` UObject 在打包配置下会直接崩。",
+    "src": "深读.md#ue-unit-05"
+  },
+  {
+    "id": "ue1-011",
+    "cat": "ue1",
+    "unit": 6,
+    "unitTitle": "Q06 Outer 与对象命名",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 Outer 的语义，下列哪些说法正确？（多选）",
+    "options": [
+      "Outer 组成对象的归属链，对象路径形如 `OuterPath.ObjectName`",
+      "对象只要挂在某个 Outer 下就一定会被保活，GC 不会回收它",
+      "Outer 不向下强引用子对象，子对象要保活仍靠 `UPROPERTY` 或 `AddToRoot`",
+      "`GetTransientPackage()` 下的对象带 transient 语义，不会被打进包",
+      "Outer 决定类型归属，可以用 `GetOuter()` 做业务类型判断"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "Outer 只是归属链，决定路径、加载归属和编辑器归类；如果 Outer 向下强引用所有子对象，关卡包会顺着 Outer 链把所有子对象永久钉住，所以引用边仍由 `UPROPERTY` 单独登记。`GetTransientPackage` 下的对象不会被存盘；类型判断要用 `IsA` 或接口，Outer 不是继承关系。",
+    "src": "深读.md#ue-unit-06"
+  },
+  {
+    "id": "ue1-012",
+    "cat": "ue1",
+    "unit": 6,
+    "unitTitle": "Q06 Outer 与对象命名",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段批量创建代码在循环里执行时有什么风险？请给出原文推荐的改法：\n\nUProbeObject* A = NewObject<UProbeObject>(this, TEXT(\"Probe\"));\nUProbeObject* B = NewObject<UProbeObject>(this, TEXT(\"Probe\"));",
+    "ref": "同一 Outer 下名字必须唯一：固定名重复创建时，引擎可能按 Outer + Name 命中并复用已有对象（A 与 B 指向同一个），也可能在 check 下直接报错。改法：用 `MakeUniqueObjectName(this, UProbeObject::StaticClass(), TEXT(\"Probe\"))` 生成唯一名再 `NewObject`，或名字里带唯一后缀；不进包的临时对象可用 `GetTransientPackage()` 作 Outer。",
+    "explain": "原文提示：固定名只用于实验观察，正式流程批量创建一律走 `MakeUniqueObjectName`。重名行为不稳定是坑点，要确定性就必须自己保证唯一名；另外 `NewObject<T>(nullptr)` 没有合法路径与归属，必须显式给 Outer。",
+    "src": "深读.md#ue-unit-06"
+  },
+  {
+    "id": "ue1-013",
+    "cat": "ue1",
+    "unit": 7,
+    "unitTitle": "Q07 GC 卡顿的来源与优化",
+    "type": "single",
+    "diff": 3,
+    "q": "按原文，GC 卡顿优化的正确优先顺序是什么？",
+    "options": [
+      "先调大每帧时间预算把工作摊开，再考虑减少对象",
+      "先减少 UObject 数量与短命对象，再分散峰值，最后才调 GC 参数",
+      "只要开了增量 GC 就不会再有尖峰，不需要改代码",
+      "先上对象池，复用后不必重置上一轮状态"
+    ],
+    "answer": [1],
+    "explain": "GC 成本近似与“对象数 × 引用数”成正比，调参只改切片方式、不改总工作量，所以顺序是少造、少留、分散、配置、定位。增量 GC 的清理阶段和大量对象同帧死亡仍会形成尖峰；对象池复用必须自己保证状态重置，否则残留状态会变成比卡顿更难查的逻辑 bug。",
+    "src": "深读.md#ue-unit-07"
+  },
+  {
+    "id": "ue1-014",
+    "cat": "ue1",
+    "unit": 7,
+    "unitTitle": "Q07 GC 卡顿的来源与优化",
+    "type": "code",
+    "diff": 3,
+    "q": "指出下面 `Tick` 的性能问题，并按原文给出池化改法的关键点：\n\nvoid AMyEmitter::Tick(float DeltaSeconds)\n{\n    Super::Tick(DeltaSeconds);\n    for (int32 i = 0; i < 100; ++i)\n    {\n        UHitInfoObject* Info = NewObject<UHitInfoObject>(this);\n        ProcessHit(Info);\n    }\n}",
+    "ref": "每帧制造 100 个短命 UObject，对象基数与 GC 频率一起上升，成本按“对象数 × 引用数”增长。改法：在头文件声明 `UPROPERTY() TArray<TObjectPtr<UHitInfoObject>> Pool;`，循环里从池中取对象（如 `Pool[NextIndex]` 并推进 `NextIndex`），先调用 `Info->ResetForReuse();` 清掉上一轮状态，再 `ProcessHit(Info)`。池成员必须标 `UPROPERTY`，否则池里的对象会被 GC 回收，池变成悬垂指针数组。",
+    "explain": "原文把“Tick 里 `NewObject`”列为真实坑第一条：每帧制造垃圾，GC 频率和单次耗时一起涨。池化只改创建方式、其余逻辑保持一致才能归因；不调 `ResetForReuse` 测到的是状态残留，而不是 GC 变快。",
+    "src": "深读.md#ue-unit-07"
+  },
+  {
+    "id": "ue1-015",
+    "cat": "ue1",
+    "unit": 8,
+    "unitTitle": "Q08 UObject 与 Actor 的销毁差异",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 Actor 与 UObject 的销毁，下列哪些说法正确？（多选）",
+    "options": [
+      "`Destroy()` 先走 `EndPlay`（带原因），再广播 Destroyed，然后把 Actor 标记待回收",
+      "对 Actor 调 `MarkAsGarbage` 同样会走 `EndPlay` 和 Destroyed 广播",
+      "`Destroy()` 返回后内存立刻释放，裸指针立刻变成空指针",
+      "销毁后 `IsValid` 返回 false，但裸指针通常仍非空",
+      "玩法清理放 `EndPlay`，资源释放放 `BeginDestroy`"
+    ],
+    "answer": [0, 3, 4],
+    "explain": "Actor 的 `Destroy` 是离场流程，UObject 没有 Destroy、只有 GC 生命周期；`MarkAsGarbage` 会跳过 `EndPlay` 和 Destroyed 广播，所以 Actor 离场必须用 `Destroy()`。Destroy 只是标记待回收、内存等 GC，`IsValid` 立刻为 false 而裸指针通常仍非空；`BeginDestroy` 里 World 可能已在销毁，玩法查询和广播都不安全。",
+    "src": "深读.md#ue-unit-08"
+  },
+  {
+    "id": "ue1-016",
+    "cat": "ue1",
+    "unit": 8,
+    "unitTitle": "Q08 UObject 与 Actor 的销毁差异",
+    "type": "code",
+    "diff": 2,
+    "q": "`EndPlay` 可能由 Destroy、关卡切换、PIE 结束等多条路径触发。下面这段实现有什么隐患？\n\nvoid AMyActor::EndPlay(const EEndPlayReason::Type Reason)\n{\n    if (UWorld* World = GetWorld())\n    {\n        World->GetTimerManager().ClearAllTimersForObject(this);\n    }\n    UE_LOG(LogTemp, Log, TEXT(\"EndPlay reason=%d\"), static_cast<int32>(Reason));\n    Super::EndPlay(Reason);\n}",
+    "ref": "缺幂等保护。多条路径可能重复触发 `EndPlay`，重复清定时器、重复移除委托会触发断言。原文写法：在头文件声明 `bool bCleanedUp = false;`，进入函数先判断，已清理则在调用 `Super::EndPlay(Reason)` 后直接 return；未清理则置 `bCleanedUp = true` 后做清理，`Super::EndPlay(Reason)` 仍放最后。",
+    "explain": "原文真实坑明确“`EndPlay` 不幂等：多条路径重复清理，重复移除委托或清定时器导致断言”。注意提前返回的分支也必须调用 `Super::EndPlay(Reason)`，否则父类清理被跳过；玩法清理放 `EndPlay`，资源释放才放 `BeginDestroy`。",
+    "src": "深读.md#ue-unit-08"
+  },
+  {
+    "id": "ue2-001",
+    "cat": "ue2",
+    "unit": 9,
+    "unitTitle": "Q09 UCLASS/UPROPERTY/UFUNCTION 的分工",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `UCLASS` / `UPROPERTY` / `UFUNCTION` 的分工，下列哪些说法正确？（多选）",
+    "options": [
+      "`UCLASS` 把类注册成运行期的 `UClass`，类才有 `StaticClass()` 和 CDO",
+      "加了 `UCLASS()` 后，类里的成员就自动能被 GC 和蓝图看见",
+      "`UPROPERTY` 把成员登记成 `FProperty`，参与 GC 引用遍历、序列化、网络复制与蓝图读写",
+      "`UFUNCTION` 把函数登记成 `UFunction`，才能被蓝图调用、被 `ProcessEvent` 按名字调用",
+      "三个宏本身进入运行期逻辑，运行期执行的就是宏体"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "三个宏只是给 UHT 的标记，真正生效的是生成文件里的注册代码。类级宏只管“类是否存在”，成员必须各自标 `UPROPERTY` 才会登记成 `FProperty`，否则能编译但运行期漏掉 GC 和序列化，是“编译通过、运行期出问题”的典型。`UFUNCTION` 影响调用方式：直接调是普通调用，走 `ProcessEvent` 是查表加间接调用。",
+    "src": "深读.md#ue-unit-09"
+  },
+  {
+    "id": "ue2-002",
+    "cat": "ue2",
+    "unit": 9,
+    "unitTitle": "Q09 UCLASS/UPROPERTY/UFUNCTION 的分工",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的类能正常编译，但服务器改了 `bTaken` 客户端永远收不到值，请指出缺失的步骤并补全代码：\n\nUCLASS(Blueprintable)\nclass MYGAME_API APickup : public AActor\n{\n    GENERATED_BODY()\npublic:\n    UPROPERTY(Replicated, BlueprintReadOnly, Category = \"Pickup\")\n    bool bTaken = false;\n};",
+    "ref": "标了 `Replicated` 还必须在 `GetLifetimeReplicatedProps` 里注册：类内声明 `virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;`，实现里先调 `Super::GetLifetimeReplicatedProps(OutLifetimeProps);`，再写 `DOREPLIFETIME(APickup, bTaken);`，并包含 `Net/UnrealNetwork.h`。",
+    "explain": "原文真实坑第二条：复制属性忘了注册，服务器改了值客户端永远收不到，而且不报任何错。`Replicated` 只是让网络系统参与，实际复制还依赖 `DOREPLIFETIME` 与网络配置；`BlueprintImplementableEvent` 只在蓝图实现，C++ 不要写实现。",
+    "src": "深读.md#ue-unit-09"
+  },
+  {
+    "id": "ue2-003",
+    "cat": "ue2",
+    "unit": 10,
+    "unitTitle": "Q10 generated.h 为什么必须最后 include",
+    "type": "single",
+    "diff": 2,
+    "q": "为什么 `X.generated.h` 必须是本头文件最后一个 include？",
+    "options": [
+      "因为 UHT 要求 include 按文件名排序，否则生成物命名冲突",
+      "因为生成代码引用了你在上方声明的类型，UHT 不负责补 include，放前面会在类型还不认识时展开",
+      "因为 `generated.h` 里已经 include 了 `CoreMinimal.h`，顺序反了会重复定义",
+      "这只是风格约定，放前面同样能正常编译"
+    ],
+    "answer": [1],
+    "explain": "UHT 是文本级扫描器，只在生成文件里写“补丁声明”，不会替作者补 `#include`；顺序颠倒时编译器先看到“不认识的类型”，第一条错误往往落在 generated.h 内部，看起来不像自己写的代码。定位诀窍是先看 include 顺序，再看宏参数。",
+    "src": "深读.md#ue-unit-10"
+  },
+  {
+    "id": "ue2-004",
+    "cat": "ue2",
+    "unit": 10,
+    "unitTitle": "Q10 generated.h 为什么必须最后 include",
+    "type": "fill",
+    "diff": 1,
+    "q": "UHT 为每个带反射宏的头文件生成两份产物：`StaticClass()` 声明等声明补丁在 `X.generated.h` 里，而 `UClass` 静态注册、属性布局表和 `Z_Construct_*` 函数在 ____ 里。",
+    "answer": ["X.gen.cpp", "gen.cpp"],
+    "explain": "`generated.h` 参与编译，装的是 `GENERATED_BODY()` 的展开与声明补丁；`gen.cpp` 参与链接，装的是 `UClass` 静态注册、属性/函数布局表和 `Z_Construct_*` 函数，静态初始化时把表和声明接起来。所以只改头文件必须重跑 UHT，表和声明必须同源。",
+    "src": "深读.md#ue-unit-10"
+  },
+  {
+    "id": "ue2-005",
+    "cat": "ue2",
+    "unit": 11,
+    "unitTitle": "Q11 UHT 的工作流程",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于 UHT 在构建流程中的分工，下列哪些说法正确？（多选）",
+    "options": [
+      "UHT 是构建流程里独立的一步，跑在 C++ 编译之前",
+      "动 `UPROPERTY`、加新类、改继承都可以用 Live Coding 热更",
+      "新模块没在 `.Build.cs` 里声明依赖时，UHT 会报找不到类型",
+      "UHT 报错在构建日志前半段，末尾常有 `UnrealHeaderTool failed for target ...` 总结行",
+      "只改 `.cpp` 里的函数体也会触发 UHT 重新生成"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "UBT 收集模块头文件喂给 UHT，UHT 做语法与类型检查后产出生成文件，之后才轮到 C++ 编译与链接，所以 UHT 报错格式与普通编译不同，要按阶段区分。Live Coding 只 patch 已加载模块的函数体，不重建 `UClass` 和属性表；只改函数体不触发 UHT，新模块缺依赖则是模块边界问题，改 C++ 代码没用。",
+    "src": "深读.md#ue-unit-11"
+  },
+  {
+    "id": "ue2-006",
+    "cat": "ue2",
+    "unit": 11,
+    "unitTitle": "Q11 UHT 的工作流程",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的 `.cpp` 文件能正常注册反射吗？构建会在哪个阶段暴露问题？\n\n// MyThing.cpp\n#include \"CoreMinimal.h\"\n\nUCLASS()\nclass UMyThing : public UObject\n{\n    GENERATED_BODY()\n};",
+    "ref": "不能。UHT 只扫描模块登记的头文件、不解析 `.cpp`，这个类会被静默跳过；编译看似通过，链接期报 `StaticClass()` 未定义。类必须写在头文件里，并 include 自己的 `MyThing.generated.h`（放在最后一个 include），再按需要补 `.generated.h` 的 include 与全量构建。",
+    "explain": "反射要生成“在类外可见”的声明，只有头文件里的类定义才能被别的翻译单元看到；`.cpp` 里的类是文件局部的，没有注册意义。原文把它列为真实坑：UHT 静默跳过、编译看似正常、链接报 `StaticClass` 未定义。",
+    "src": "深读.md#ue-unit-11"
+  },
+  {
+    "id": "ue2-007",
+    "cat": "ue2",
+    "unit": 12,
+    "unitTitle": "Q12 反射系统能做什么",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于反射系统的能力与代价，下列哪些说法正确？（多选）",
+    "options": [
+      "GC 靠属性链找出所有 `UObject` 引用，序列化按属性表逐字段读写",
+      "反射只是编辑器/调试功能，cooked 包里属性表就不存在了",
+      "反射调用的开销主要在按名字查 `UFunction` 和 `ProcessEvent` 无法内联",
+      "反射能覆盖普通 C++ 类、`std::` 容器与模板实例",
+      "同一个 `UPROPERTY` 同时被 GC、存档、网络、编辑器和蓝图复用"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "反射的核心价值是“一次登记，多处复用”，把编译期类结构变成运行期数据表；cooked 包里属性表同样存在，只有 `WITH_EDITORONLY_DATA` 的成员被剥离。代价是宏侵入、多一道 UHT 工序，以及查表和间接调用无法内联；能力只覆盖带宏的 `UCLASS`/`USTRUCT`/`UENUM`，普通 C++ 类与模板不在里面。",
+    "src": "深读.md#ue-unit-12"
+  },
+  {
+    "id": "ue2-008",
+    "cat": "ue2",
+    "unit": 12,
+    "unitTitle": "Q12 反射系统能做什么",
+    "type": "fill",
+    "diff": 2,
+    "q": "属性链的遍历顺序由生成器决定、不保证稳定，因此业务逻辑不应依赖顺序，按 ____ 查找更稳。",
+    "answer": ["名字", "属性名", "名字查找"],
+    "explain": "属性链的顺序由生成器决定，业务逻辑不应依赖遍历顺序；`FindPropertyByName`、`FindFunction` 都按名字定位，换引擎版本或增删属性后也不会静默错位。反射遍历更适合初始化、工具和编辑器场景，不宜放进 Tick。",
+    "src": "深读.md#ue-unit-12"
+  },
+  {
+    "id": "ue2-009",
+    "cat": "ue2",
+    "unit": 13,
+    "unitTitle": "Q13 GENERATED_BODY 与 GENERATED_UCLASS_BODY",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 `GENERATED_BODY()` 与 `GENERATED_UCLASS_BODY()` 的区别，哪一项正确？",
+    "options": [
+      "两者只是新旧名字，展开内容完全一样",
+      "`GENERATED_UCLASS_BODY()` 会插入 `public:` 和带 `FObjectInitializer` 的构造函数声明",
+      "`GENERATED_BODY()` 会自动替你声明构造函数，不用自己写",
+      "同一个类可以同时写两个宏，避免遗漏"
+    ],
+    "answer": [1],
+    "explain": "新宏只展开反射必需的最小内容，构造函数与访问修饰符由作者声明，所以不会被宏悄悄改写访问级别；老宏自动插入 `public:` 和 `FObjectInitializer` 构造声明，实现必须严格匹配签名。两个宏都必须在类体最前，且同一个类只能写一个，否则重复声明直接编译失败。",
+    "src": "深读.md#ue-unit-13"
+  },
+  {
+    "id": "ue2-010",
+    "cat": "ue2",
+    "unit": 13,
+    "unitTitle": "Q13 GENERATED_BODY 与 GENERATED_UCLASS_BODY",
+    "type": "fill",
+    "diff": 2,
+    "q": "把老代码的 `GENERATED_UCLASS_BODY()` 换成 `GENERATED_BODY()` 后如果忘了自己声明构造函数，编译器会生成默认构造，原本在构造函数里创建的子对象全部为 ____。",
+    "answer": ["空", "空指针", "nullptr", "为空"],
+    "explain": "老宏的构造声明是宏给的，作者只负责实现；换宏后声明要自己补，漏了就是编译器生成的默认构造，构造函数体不执行，`CreateDefaultSubobject` 创建的子对象全为空，运行期空指针崩溃。迁移动作是换宏、补声明、补实现，并检查 `Super(...)` 的实参。",
+    "src": "深读.md#ue-unit-13"
+  },
+  {
+    "id": "ue2-011",
+    "cat": "ue2",
+    "unit": 14,
+    "unitTitle": "Q14 反射系统的限制",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于反射系统的限制，下列哪些说法正确？（多选）",
+    "options": [
+      "成员类型走白名单，`std::vector`、`TFunction`、裸函数指针不能出现在 `UPROPERTY` 里",
+      "模板类只要加上 `UCLASS` 或 `USTRUCT` 就能正常反射",
+      "继承只允许一个 `UObject` 基类 + 若干 `UINTERFACE`，接口不能有成员变量",
+      "蓝图可见的 `UENUM` 基础类型必须是 `uint8`",
+      "`UPROPERTY` 可以正常标在 `static` 成员上"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "白名单的本质是 GC 和序列化必须知道怎么处理这段字节，越界类型在 UHT 阶段直接报错，不存在“打标记绕过”。模板实例在 UHT 阶段没有唯一、可命名的稳定符号，只有容器类型由 UHT 特判支持；反射属性是“对象上的偏移”，static 成员不属于任何实例，类级配置要用 `Config`。",
+    "src": "深读.md#ue-unit-14"
+  },
+  {
+    "id": "ue2-012",
+    "cat": "ue2",
+    "unit": 14,
+    "unitTitle": "Q14 反射系统的限制",
+    "type": "fill",
+    "diff": 2,
+    "q": "`UPROPERTY` 不能标 `static`，类级配置的标准做法是 `UCLASS(config=Game)` 加 `UPROPERTY(____)`，或继承 `UDeveloperSettings`。",
+    "answer": ["Config", "config"],
+    "explain": "反射属性是“对象上的偏移”，静态成员不属于任何实例，GC 和序列化都无处安放，所以 UHT 直接拒绝 `static`。类级静态配置改用 `UPROPERTY(Config)` 由配置系统承载，或继承 `UDeveloperSettings`；接口里也不能放成员变量，状态要放到实现类的 `UPROPERTY`。",
+    "src": "深读.md#ue-unit-14"
+  }
+]

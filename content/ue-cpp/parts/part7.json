@@ -1,0 +1,369 @@
+[
+  {
+    "id": "ue5-001",
+    "cat": "ue5",
+    "unit": 29,
+    "unitTitle": "Q29 C++ 调用蓝图逻辑",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于用 `BlueprintImplementableEvent` 让 C++ 调用蓝图实现，下列说法正确的是？（多选）",
+    "options": [
+      "C++ 只声明不写函数体，函数体由 UHT 生成，把调用转发进脚本虚拟机",
+      "调用前必须先判断蓝图子类有没有实现该事件，否则会崩溃",
+      "蓝图没有实现时只是一次空调用，带返回值时拿到默认初始化值（`0`、`false`、空）",
+      "它本身属于网络事件，声明后可以直接当 RPC 使用",
+      "它允许 C++ 子类用 `virtual` 覆写来提供默认实现"
+    ],
+    "answer": [0, 2],
+    "explain": "UHT 会为这个 `UFUNCTION` 生成同名函数体，入口是反射分发，脚本层没实现就查不到、安静返回，所以不需要判断“有没有实现”。它只是本机事件、不参与复制，也不能有 C++ 默认实现，需要 C++ 保底行为时该改用 `BlueprintNativeEvent`。选 1、3、4 分别对应“必须判空”“当 RPC 用”“可 virtual 覆写”三个常见误解。",
+    "src": "深读.md#ue-unit-29"
+  },
+  {
+    "id": "ue5-002",
+    "cat": "ue5",
+    "unit": 29,
+    "unitTitle": "Q29 C++ 调用蓝图逻辑",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段想在 Actor 构造阶段把“已生成”通知给蓝图事件，但蓝图子类的日志始终不出现。请指出原因并给出修改：\n\nAMyTrigger::AMyTrigger()\n{\n    PrimaryActorTick.bCanEverTick = true;\n    OnPlayerEntered(nullptr);   // BlueprintImplementableEvent\n}",
+    "ref": "问题在调用时机：构造函数在 CDO 和蓝图子类构造阶段执行，此时对象还不完整、还没有脚本接收者，事件查不到脚本实现，静默返回，日志一片安静。改法是把通知挪到 `BeginPlay` 或 `NotifyActorBeginOverlap` 这类运行期回调里：\n\nvoid AMyTrigger::BeginPlay()\n{\n    Super::BeginPlay();\n    OnPlayerEntered(nullptr);\n}\n\n判定要点：接收对象（`this`）本身有效，所以调用不会崩，只是“没有实现”的空调用；不要为此加“蓝图有没有实现”的判断，排查时应先用 `FindFunction(TEXT(\"OnPlayerEntered\"))` 确认事件名，再怀疑调用时机。",
+    "explain": "构造函数属于 CDO 与蓝图子类的构造阶段，脚本层还没接上，分发器找不到脚本实现就安静返回，既不崩也不报错，所以现象是“日志一片安静”。同一条链路上还有个易错点：把返回值当成必有值，蓝图没实现时拿到 `0`，紧接着做除法就可能除零。",
+    "src": "深读.md#ue-unit-29"
+  },
+  {
+    "id": "ue5-003",
+    "cat": "ue5",
+    "unit": 30,
+    "unitTitle": "Q30 蓝图调用 C++",
+    "type": "single",
+    "diff": 1,
+    "q": "关于把 C++ 暴露给蓝图，下列哪一项与原文一致？",
+    "options": [
+      "只要函数写在 `UCLASS` 里，蓝图节点菜单里就会自动出现",
+      "`BlueprintPure` 没有执行引脚，同一节点连到多个输入上可能被多次求值，因此应保持无副作用",
+      "`BlueprintReadOnly` 表示连 C++ 内部也不能修改这个属性",
+      "`EditAnywhere` 就等于蓝图图表里可读写"
+    ],
+    "answer": [1],
+    "explain": "UHT 只把标了 `UFUNCTION` 的成员写进元数据，没标的根本不进反射，蓝图里没有节点。`BlueprintReadOnly` 只限制蓝图图表读取，C++ 内部照常写；`EditAnywhere` 只控制 Details 面板的编辑范围，蓝图图表权限由 `Blueprint*` 系列单独决定。纯函数按连线求值、可能被多次执行，所以只能便宜、确定、无副作用。",
+    "src": "深读.md#ue-unit-30"
+  },
+  {
+    "id": "ue5-004",
+    "cat": "ue5",
+    "unit": 30,
+    "unitTitle": "Q30 蓝图调用 C++",
+    "type": "fill",
+    "diff": 1,
+    "q": "在 `UCLASS` 里写好的成员函数，只有标了 ____ 才会进反射、在蓝图节点菜单里出现；把这一行注释掉再编译，对应节点会直接消失。",
+    "answer": ["UFUNCTION", "UFUNCTION()", "UFUNCTION 宏"],
+    "explain": "UHT 扫描头文件后，只把 `UFUNCTION` 标记的函数元数据写进生成代码，蓝图编辑器再据此构建节点菜单，普通 C++ 函数写得再好也不会出现。注释掉标记后节点消失，正是“没标记就不可见”的最小复现；排查“蓝图里看不到函数”时，先看标记、类型，再看是否完整编译并刷新了编辑器。",
+    "src": "深读.md#ue-unit-30"
+  },
+  {
+    "id": "ue5-005",
+    "cat": "ue5",
+    "unit": 31,
+    "unitTitle": "Q31 NativeEvent 与 ImplementableEvent 的区别",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于 `BlueprintNativeEvent` 与 `BlueprintImplementableEvent` 的区别，下列说法正确的是？（多选）",
+    "options": [
+      "`BlueprintNativeEvent` 的 C++ 默认实现必须写在 `函数名_Implementation`，声明函数只是反射分发入口",
+      "蓝图覆盖后，C++ 的默认逻辑仍会先自动执行一遍",
+      "`_Implementation` 本身是 `virtual`，C++ 子类也能覆写它来改默认行为",
+      "两者声明在接口上时，都必须用 `I接口::Execute_函数名` 调用"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "`_Implementation` 存在的理由是给 UHT 留出同名反射入口：声明名负责分发，`_Implementation` 是虚函数本体。分发顺序是“蓝图覆盖优先，否则回落 C++”，所以覆盖后默认逻辑完全让位，要保留就得在蓝图里显式接 Parent 节点。接口没有对象实例可以自己分发，因此接口上的同类事件也必须走 `Execute_`。",
+    "src": "深读.md#ue-unit-31"
+  },
+  {
+    "id": "ue5-006",
+    "cat": "ue5",
+    "unit": 31,
+    "unitTitle": "Q31 NativeEvent 与 ImplementableEvent 的区别",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的 `BlueprintNativeEvent` 声明与默认实现不匹配，请指出问题并改正：\n\nUFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = \"Damage\")\nfloat ComputeDamage(float Base, AActor* Target) const;\n\nfloat AMyWeapon::ComputeDamage_Implementation(float Base, AActor* Target)\n{\n    return Base * DamageScale;\n}",
+    "ref": "实现的签名必须与声明逐字符一致，这里漏了 `const`，应改成：\n\nfloat AMyWeapon::ComputeDamage_Implementation(float Base, AActor* Target) const\n{\n    return Base * DamageScale;\n}\n\n否则 UHT 报签名不匹配，或链接期找不到 `_Implementation` 的未解析符号。另一条纪律：业务代码一律调声明名 `Weapon->ComputeDamage(...)`，直接调 `_Implementation` 会绕过反射分发，蓝图覆盖永远不生效。",
+    "explain": "UHT 需要两个名字：声明名是反射分发入口，`_Implementation` 是带 `virtual` 的 C++ 默认逻辑本体，所以签名连 `const` 都必须一致，差一个修饰符就编译或链接失败。蓝图一旦覆盖，默认实现不会自动执行，要父类逻辑得显式接 Parent 节点。",
+    "src": "深读.md#ue-unit-31"
+  },
+  {
+    "id": "ue5-007",
+    "cat": "ue5",
+    "unit": 32,
+    "unitTitle": "Q32 把属性安全暴露给蓝图",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 `UPROPERTY` 暴露给蓝图，下列哪一项与原文一致？",
+    "options": [
+      "加了 `UPROPERTY` 蓝图就能看到，不需要再配 `BlueprintReadOnly`/`BlueprintReadWrite`",
+      "`ClampMin`/`ClampMax` 只在编辑器输入时校验，运行时赋值仍要自己检查",
+      "`EditAnywhere` 与 `BlueprintReadWrite` 是同一个开关的两种写法",
+      "私有属性只要写了 `UPROPERTY`，就一定能在蓝图里访问"
+    ],
+    "answer": [1],
+    "explain": "编辑器轴（`EditAnywhere`/`EditDefaultsOnly`/`EditInstanceOnly`）与蓝图轴（`BlueprintReadOnly`/`BlueprintReadWrite`）是两条独立开关，要各自配置；私有属性还差 `meta=(AllowPrivateAccess=\"true\")` 才进蓝图。`ClampMin`/`ClampMax` 只挡编辑阶段的输入，`UIMin`/`UIMax` 只影响滑条显示，运行时仍得自己钳制。",
+    "src": "深读.md#ue-unit-32"
+  },
+  {
+    "id": "ue5-008",
+    "cat": "ue5",
+    "unit": 32,
+    "unitTitle": "Q32 把属性安全暴露给蓝图",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的写法让蓝图可以绕过校验直接改生命值，请按原文“默认只读 + 受控写入”改一版：\n\nUCLASS()\nclass UMyHealthComponent : public UActorComponent\n{\n    GENERATED_BODY()\npublic:\n    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = \"Health\")\n    float Health = 100.f;\n};",
+    "ref": "改成私有 + 蓝图只读 + 允许私有访问，写入收口到一个带校验的函数：\n\nUFUNCTION(BlueprintCallable, Category = \"Health\")\nvoid ApplyDamage(float Amount);\n\nprivate:\n    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = \"Health\",\n              meta = (AllowPrivateAccess = \"true\", ClampMin = \"0.0\", UIMax = \"100.0\"))\n    float Health = 100.f;\n\n`ApplyDamage` 里统一做 `FMath::Clamp`、死亡判断和广播。判定要点：私有属性必须配 `meta=(AllowPrivateAccess=\"true\")`；能不给 `BlueprintReadWrite` 就不给；`ClampMin`/`UIMax` 只作用于编辑器输入与滑条显示，不替代运行时校验。",
+    "explain": "`BlueprintReadWrite` 的风险不在性能而在不变量：蓝图能绕过 `ApplyDamage` 直接写 `Health`，负数、超上限、跳过死亡广播都可能出现；若属性参与复制，客户端写入还会被服务器覆盖。原文的默认策略就是只读加受控写入函数，`meta` 只是把错误提前挡在编辑阶段。",
+    "src": "深读.md#ue-unit-32"
+  },
+  {
+    "id": "ue5-009",
+    "cat": "ue5",
+    "unit": 33,
+    "unitTitle": "Q33 C++ 与蓝图的选型",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 C++ 与蓝图的选型，下列说法正确的是？（多选）",
+    "options": [
+      "逐帧逻辑、大量循环和底层系统应下沉到 C++",
+      "UE5 仍可用蓝图 Nativization 把蓝图转成 C++，作为常规性能方案",
+      "内容组装、演出和 UI 调整用蓝图迭代最快，低频场景完全够用",
+      "常见分层是 C++ 抽象基类定骨架和性能边界、蓝图子类填资源和表现",
+      "既然蓝图慢，逻辑应尽量全部放进 C++"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "原文按执行频率、变更频率、维护者三条线分工：蓝图编译成字节码由虚拟机逐节点执行，成本在循环和 Tick 里被放大，所以高频逻辑下沉 C++；而蓝图改完即生效，适合内容和表现。Nativization 在 UE5 已被移除，不能当性能方案；全部下沉会让规则失去可迭代性，策划改一个数值也要等编译重启。",
+    "src": "深读.md#ue-unit-33"
+  },
+  {
+    "id": "ue5-010",
+    "cat": "ue5",
+    "unit": 33,
+    "unitTitle": "Q33 C++ 与蓝图的选型",
+    "type": "fill",
+    "diff": 2,
+    "q": "蓝图编译成字节码后由虚拟机逐节点执行，同样逻辑比原生 C++ 多一层解释和 ____ 调用开销，所以高频循环与 Tick 逻辑应下沉到 C++。",
+    "answer": ["反射"],
+    "explain": "每个蓝图节点都要经过虚拟机取指令、解析引脚、再调进原生函数，跨进 C++ 的那一步还带反射调用开销；单次只多几微秒，放进每帧 Tick 或上千次循环就变成 GameThread 上的稳定开销。是否该下沉要用 `stat unit`/`stat game` 或 Unreal Insights 量化，不靠主观体感。",
+    "src": "深读.md#ue-unit-33"
+  },
+  {
+    "id": "ue5-011",
+    "cat": "ue5",
+    "unit": 34,
+    "unitTitle": "Q34 蓝图之间的通信方式",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于蓝图之间的通信方式，下列说法正确的是？（多选）",
+    "options": [
+      "Cast 被诟病主要是因为性能差，节点本身的执行开销极大",
+      "接口按“能力”调用，代价是不能有成员变量，且必须用 `I接口::Execute_函数名` 调用",
+      "Event Dispatcher 就是动态多播委托，本地同步执行，不参与网络复制",
+      "GameplayMessageSubsystem 按 GameplayTag 发布/订阅，发布方与订阅方互不引用",
+      "消息总线最解耦，任何通信都应优先用它"
+    ],
+    "answer": [1, 2, 3],
+    "explain": "Cast 本身不贵，贵的是依赖：它绑定具体类，换类或换继承关系时所有 Cast 点都要改，失败还返回空，不判空就调成员是崩溃常见来源。接口把依赖降到能力层但不能带状态；分发器是一对多、同步、本地；消息总线去掉最后一点引用，代价是调用链变隐式，排障要靠 Tag 规范、集中登记和日志。",
+    "src": "深读.md#ue-unit-34"
+  },
+  {
+    "id": "ue5-012",
+    "cat": "ue5",
+    "unit": 34,
+    "unitTitle": "Q34 蓝图之间的通信方式",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的交互代码把调用方绑死在具体门类上，请改成按能力调用，使新增第三种可交互物时此处零改动：\n\nvoid AMyPlayerController::TryInteract(AActor* HitActor)\n{\n    if (AMyDoor* Door = Cast<AMyDoor>(HitActor))\n    {\n        Door->Open(this);\n    }\n}",
+    "ref": "改成先判能力、再走接口分发：\n\nif (HitActor && HitActor->Implements<UInteractable>())\n{\n    IInteractable::Execute_Interact(HitActor, this);\n}\n\n判定要点：调用前必须 `Implements<UInteractable>()`；接口事件不能对接口指针直接调成员函数，必须 `IInteractable::Execute_Interact(...)`；交互实现放在接口的 `BlueprintNativeEvent` 里，新增实现类时调用方零改动。",
+    "explain": "接口把依赖从具体类型降到“能力”，调用方只关心对方能不能被交互，不再关心它是门、宝箱还是 NPC。原文强调接口不能有成员变量，状态要放在实现类或组件里；直接对接口指针调成员函数编译不过，这也是接口事件必须走 `Execute_` 的原因。",
+    "src": "深读.md#ue-unit-34"
+  },
+  {
+    "id": "ue6-001",
+    "cat": "ue6",
+    "unit": 35,
+    "unitTitle": "Q35 单播、多播与动态委托的区别",
+    "type": "single",
+    "diff": 2,
+    "q": "关于单播、多播与动态委托，下列哪一项与原文一致？",
+    "options": [
+      "“动态”指运行期才决定绑谁，可以先把槽位留空、之后自动匹配",
+      "单播只有一个槽位，重复 `Bind` 会覆盖前一次，而且不报错",
+      "多播声明了 `RetVal` 宏后，`Broadcast` 会聚合所有槽位的返回值",
+      "动态委托是原生委托的升级版，热路径也应当优先用动态"
+    ],
+    "answer": [1],
+    "explain": "“动态”指广播时按函数名去反射表里查 `UFunction`，绑谁在 `AddDynamic` 那一刻就写死了。单播只有一个槽位，后绑覆盖前绑且静默；多播带 RetVal 时在循环里不断覆盖，只有最后一个执行槽位的结果有效，既不聚合也不短路；动态是叠在原生之上的反射适配层，每次调用多一次查表与 `ProcessEvent`，热路径仍用原生。",
+    "src": "深读.md#ue-unit-35"
+  },
+  {
+    "id": "ue6-002",
+    "cat": "ue6",
+    "unit": 35,
+    "unitTitle": "Q35 单播、多播与动态委托的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的动态多播声明位置会让 UHT 解析失败，请指出问题并给出正确写法：\n\nUCLASS()\nclass MYGAME_API UMyHealthComponent : public UActorComponent\n{\n    GENERATED_BODY()\n    DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHealthChanged, float, NewHealth, float, Delta);\npublic:\n    UPROPERTY(BlueprintAssignable, Category=\"Health\")\n    FOnHealthChanged OnHealthChanged;\n};",
+    "ref": "动态委托宏必须写在文件作用域，即 `#include \"MyHealthComponent.generated.h\"` 之后、`UCLASS()` 之前，不能放进类体：\n\nDECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHealthChanged, float, NewHealth, float, Delta);\n\nUCLASS()\nclass MYGAME_API UMyHealthComponent : public UActorComponent\n{ ... };\n\n配套要点：`UPROPERTY(BlueprintAssignable)` 让它在蓝图里显示为 Event Dispatcher；`AddDynamic` 的目标函数必须标 `UFUNCTION()`，且签名与宏参数逐个对齐。",
+    "explain": "UHT 解析头文件时按文件作用域识别委托宏，写进类体里会直接解析失败。`BlueprintAssignable` 只决定蓝图可见性，去掉它 C++ 的 `Broadcast` 照常执行；而 `AddDynamic` 目标函数漏 `UFUNCTION()` 会绑定失败，报错信息还指向委托而不是那个函数，容易查错方向。",
+    "src": "深读.md#ue-unit-35"
+  },
+  {
+    "id": "ue6-003",
+    "cat": "ue6",
+    "unit": 36,
+    "unitTitle": "Q36 动态委托的底层原理",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于动态委托的底层原理，下列说法正确的是？（多选）",
+    "options": [
+      "动态委托存的是 `TWeakObjectPtr<UObject>` 加 `FName`，不存函数地址",
+      "动态委托慢是因为每次绑定都要在堆上分配对象",
+      "调用时先按名字在目标 `UClass` 上查 `UFunction`，再按反射布局组包走 `ProcessEvent`",
+      "只要签名一致，lambda 与静态函数也能用 `AddDynamic` 绑定",
+      "目标函数是蓝图函数时还要再进蓝图虚拟机执行，所以比绑 C++ `UFUNCTION` 更贵"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "慢的不是内存分配，而是每次调用的查表、按反射布局组包和 `ProcessEvent`，蓝图目标再叠一层 VM 成本。参数要按 `UFunction` 布局写进缓冲区，所以只有 UHT 能描述的类型与 `UFUNCTION` 才进得了表，lambda 与静态函数没有元数据，绑不上。弱引用保证对象被 GC 后不悬垂，但槽位仍在，`IsBound()` 不能当存活判据。",
+    "src": "深读.md#ue-unit-36"
+  },
+  {
+    "id": "ue6-004",
+    "cat": "ue6",
+    "unit": 36,
+    "unitTitle": "Q36 动态委托的底层原理",
+    "type": "code",
+    "diff": 3,
+    "q": "下面这段还原动态委托调用链路的代码少了一步，`ProcessEvent` 的实参也不对，请改正：\n\nvoid FScriptDelegateLike::Execute() const\n{\n    UObject* Target = Object.Get();\n    if (!Target) { return; }\n    Target->ProcessEvent(FunctionName, nullptr);\n}",
+    "ref": "补上“查表”一步，并把 `UFunction*` 交给 `ProcessEvent`：\n\nvoid FScriptDelegateLike::Execute() const\n{\n    UObject* Target = Object.Get();\n    if (!Target) { return; }                              // 对象已销毁：跳过，不崩\n    UFunction* Fn = Target->FindFunction(FunctionName);   // 按名字查表\n    if (!Fn) { return; }                                  // 改名或移除：静默失败\n    Target->ProcessEvent(Fn, nullptr);                    // 反射调用，参数需按布局组包\n}\n\n判定要点：链路顺序是“查表 → 组包 → `ProcessEvent` →（蓝图则进 VM）”；`ProcessEvent` 接收的是 `UFunction*` 而不是 `FName`；参数要按 `UFunction` 的反射布局写进缓冲区。",
+    "explain": "`FScriptDelegate` 里只有“对象 + 函数名”两个字段，运行时必须现场把名字翻译成函数，所以查表这一步不能省。对象被回收时弱引用失效、直接跳过；函数改名或没标 `UFUNCTION` 时查不到，静默不执行，这正是“读档后事件不触发”一类问题最隐蔽的来源。",
+    "src": "深读.md#ue-unit-36"
+  },
+  {
+    "id": "ue6-005",
+    "cat": "ue6",
+    "unit": 37,
+    "unitTitle": "Q37 各 Add 绑定 API 的区别",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `AddDynamic`、`AddUObject`、`AddRaw`、`AddSP`、`AddLambda`，下列说法正确的是？（多选）",
+    "options": [
+      "`AddLambda` 的闭包没有 UserObject，`RemoveAll(this)` 清不掉它，只能用返回的 `FDelegateHandle` 精确移除",
+      "`AddSP` 存的是强引用，不解绑就会延长目标寿命",
+      "`AddRaw` 不管理生命周期，被绑对象销毁后再广播会崩",
+      "`AddUObject` 与 `AddDynamic` 可以互换，动态委托也接受 `AddUObject`",
+      "单播用 `Add*` 前缀、多播用 `Bind*` 前缀，两者都返回 `FDelegateHandle`"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`AddDynamic` 是动态委托专用，只接受“UObject + `UFUNCTION`”；`AddUObject` 是原生委托绑 UObject 成员的写法，两者不能互换，动态委托上也没有 `AddUObject`。命名约定正好相反：单播用 `Bind*`（重复绑定即覆盖、不返回 handle），多播用 `Add*` 并返回 `FDelegateHandle`。框架只能对有身份的可调用物判活，闭包、裸指针、共享指针都得自己管。",
+    "src": "深读.md#ue-unit-37"
+  },
+  {
+    "id": "ue6-006",
+    "cat": "ue6",
+    "unit": 37,
+    "unitTitle": "Q37 各 Add 绑定 API 的区别",
+    "type": "fill",
+    "diff": 2,
+    "q": "`AddSP` 保存的是 `TSharedRef`，属于____引用；只要槽位不解绑，被绑对象就不会销毁，在 Subsystem、GameInstance 这类长生命周期的全局多播上尤其危险。",
+    "answer": ["强"],
+    "explain": "`AddSP` 用强引用换安全，代价是反向泄漏：对象本该随关卡销毁，却因为槽位还在而活过关卡，内存和逻辑一起串场。所以要么明确由谁在什么时机 `Remove(Handle)`，要么干脆别用；只有基于 UObject 的绑定才有弱引用兜底。",
+    "src": "深读.md#ue-unit-37"
+  },
+  {
+    "id": "ue6-007",
+    "cat": "ue6",
+    "unit": 38,
+    "unitTitle": "Q38 多播的顺序与返回值",
+    "type": "single",
+    "diff": 2,
+    "q": "关于多播委托的调用顺序与返回值，下列哪一项与原文一致？",
+    "options": [
+      "多播按添加顺序执行，可以当作设计契约，用来保证“先扣血再判死”",
+      "带 `RetVal` 的多播在循环里不断覆盖返回值，只有最后一个执行槽位的结果有效",
+      "多播会聚合所有槽位的返回值，并在任一槽位返回 false 时短路",
+      "在回调里 `Remove` 自己会立刻崩溃，所以绝不能这么做"
+    ],
+    "answer": [1],
+    "explain": "多播的语义是通知而不是求值：宏上可以声明 RetVal，但 `Broadcast` 循环覆盖同一个返回值，既不聚合也不短路。按添加顺序遍历只是当前实现的细节，槽位来自 C++ `Add*` 与蓝图绑定两套路径，跨版本、跨混合绑定都不保证。广播中 `Remove` 自己通常不崩（内部有锁并延迟压缩），但后续槽位是否执行属于未定义行为。",
+    "src": "深读.md#ue-unit-38"
+  },
+  {
+    "id": "ue6-008",
+    "cat": "ue6",
+    "unit": 38,
+    "unitTitle": "Q38 多播的顺序与返回值",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的广播实现在回调里增删监听者时行为不可推理，请按原文改成“快照 + 延迟落地”：\n\nvoid FScoreDispatcher::Broadcast(int32 Score)\n{\n    for (const FListener& L : Listeners)\n    {\n        if (L) { L(Score); }\n    }\n}",
+    "ref": "遍历快照，把增删记录成本轮意图、结束后统一落地：\n\nvoid FScoreDispatcher::Broadcast(int32 Score)\n{\n    bBroadcasting = true;\n    const TArray<FListener> Snapshot = Listeners;   // 快照：回调里增删不影响本轮\n    for (const FListener& L : Snapshot)\n    {\n        if (L) { L(Score); }\n    }\n    bBroadcasting = false;\n    for (FListener& L : Pending) { Listeners.Add(MoveTemp(L)); }\n    Pending.Reset();\n}\n\n配套：`Add` 在 `bBroadcasting` 为真时只往 `Pending` 里塞；删除则记录 `FDelegateHandle`，本轮结束后统一 `Remove`。",
+    "explain": "引擎内部加了锁并在合适时机压缩槽位列表，所以回调里 `Remove` 自己通常不崩，但“本轮还会不会调用新加的那个”“删掉后后面的槽位还跑不跑”属于未定义行为，不能赌。稳妥写法是广播中只记录意图、本轮结束后统一处理；如果确实需要严格顺序，就自己维护 `TArray<TFunction<...>>` 按索引串行调用。",
+    "src": "深读.md#ue-unit-38"
+  },
+  {
+    "id": "ue6-009",
+    "cat": "ue6",
+    "unit": 39,
+    "unitTitle": "Q39 委托的生命周期与解绑",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于委托的生命周期与解绑，下列说法正确的是？（多选）",
+    "options": [
+      "`AddUObject`/`AddDynamic` 内部是弱引用，对象销毁后广播会跳过该槽位，但槽位本身还在",
+      "弱引用兜底能覆盖 `AddLambda` 捕获的 this 和 `AddRaw` 的裸指针",
+      "`AddSP` 是强引用，不解绑可能让目标活过关卡，形成泄漏",
+      "清理应放在 `EndPlay` 或 `BeginDestroy`，不要赌 UObject 的析构顺序",
+      "`IsBound()` 为 true 就说明还有活着的监听者"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "弱引用只覆盖基于 UObject 的绑定（`AddUObject`、`AddDynamic`、`AddWeakLambda`）；lambda 捕获 this、`AddRaw` 裸指针、`AddSP` 强引用都不在保护范围，前两类对象死后会崩，第三类会造成泄漏。槽位不会随对象销毁消失，所以 `IsBound()` 不能当存活判据；UObject 析构时机由 GC 决定，清理要放在 `EndPlay`/`BeginDestroy`。",
+    "src": "深读.md#ue-unit-39"
+  },
+  {
+    "id": "ue6-010",
+    "cat": "ue6",
+    "unit": 39,
+    "unitTitle": "Q39 委托的生命周期与解绑",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的 `EndPlay` 什么都没清，订阅的外部事件和定时器会残留。请按原文补全清理清单：\n\nvoid UMyHealthComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)\n{\n    Super::EndPlay(EndPlayReason);\n}",
+    "ref": "void UMyHealthComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)\n{\n    if (UWorld* World = GetWorld())\n    {\n        World->GetTimerManager().ClearAllTimersForObject(this);\n    }\n    if (UMyGameState* GS = GetWorld() ? GetWorld()->GetGameState<UMyGameState>() : nullptr)\n    {\n        GS->OnWaveStarted.RemoveAll(this);\n    }\n    OnDied.Clear();                    // 自己广播的，清空所有槽位\n    OnHealthChanged.RemoveAll(this);   // 动态多播按 UserObject 清\n    Super::EndPlay(EndPlayReason);\n}\n\n判定要点：定时器按对象统一清，不只 Invalidate 一个 handle；订阅方 `RemoveAll(this)`、被订阅方 `Clear()` 两边都做；`Super::EndPlay` 放最后。",
+    "explain": "委托不拥有监听者，谁先销毁不确定，所以规范必须双向：A 订阅 B 时，A 在 `EndPlay` 清自己的槽位，B 销毁前 `Clear()`，不依赖对方的行为。定时器同理，`FTimerManager` 按 World 管理，只 Invalidate 一个 handle 会让同一对象其他定时器继续跑；切关卡时 GameInstance、Subsystem 上的槽位不会自动清。",
+    "src": "深读.md#ue-unit-39"
+  },
+  {
+    "id": "ue6-011",
+    "cat": "ue6",
+    "unit": 40,
+    "unitTitle": "Q40 委托、接口与直接调用的选型",
+    "type": "multi",
+    "diff": 1,
+    "q": "关于委托、接口与直接调用的选型，下列说法正确的是？（多选）",
+    "options": [
+      "接口回答“你具备什么能力”，调用同步、可以有返回值、不需要注册和解绑",
+      "委托比接口更高级，凡是想解耦都应改用委托",
+      "同模块内调用方明确知道目标时，直接调用最快、调用栈也最好读",
+      "一对多、不需要返回值、还要让蓝图参与，选动态多播或 Event Dispatcher",
+      "把 `CanBeDamaged()` 这类能力查询做成委托，是最推荐的解耦写法"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "三种机制回答不同问题：接口是能力查询（同步、可带返回值、无绑定表），委托是事件通知（发布方完全不认识订阅方、要管解绑），直接调用是“我现在就要结果”（硬依赖，但同模块最快）。委托只解决事件通知，拿它做能力查询会退化成一堆单播链，比接口更难维护；直接调用的代价只在跨模块硬依赖时才显现。",
+    "src": "深读.md#ue-unit-40"
+  },
+  {
+    "id": "ue6-012",
+    "cat": "ue6",
+    "unit": 40,
+    "unitTitle": "Q40 委托、接口与直接调用的选型",
+    "type": "fill",
+    "diff": 1,
+    "q": "选型时可以用一句话区分：接口回答“你具备什么____”，委托回答“发生了什么事”，直接调用回答“我现在就要结果”。",
+    "answer": ["能力"],
+    "explain": "接口把依赖收敛到能力层，调用方不关心对方是门、箱子还是 NPC；委托把依赖方向反过来，发布方完全不认识订阅方，代价是多一张绑定表和一套生命周期管理。原文把判断标准收敛成四个问题：是否一对多、是否需要返回值、是否要暴露给蓝图、调用方能否持有被调方的具体类型。",
+    "src": "深读.md#ue-unit-40"
+  }
+]

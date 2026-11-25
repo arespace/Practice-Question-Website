@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:," />
+<title>检测题 · C++ / UEC++ 查缺补漏</title>
+<meta name="description" content="按章节分类的 C++ 与 UEC++ 检测题：单选、多选、填空、编程，自动判分并归集错题。" />
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="quiz.css?v=4651478829" />
+</head>
+<body class="has-view-tabs" data-page="quiz">
+<div class="bg-grid" aria-hidden="true"></div>
+
+<header class="app-header">
+  <button class="icon-btn menu-btn" id="menuBtn" aria-label="打开分类面板">☰</button>
+  <a class="brand" href="index.html" title="返回速背卡片">
+    <div class="brand-mark">Q<span>?</span></div>
+    <div class="brand-text">
+      <h1>检测题 · 查缺补漏</h1>
+      <p id="bankSub">15 章 · 122 单元 · 366 题 · 单选 / 多选 / 填空 / 编程</p>
+    </div>
+  </a>
+  <nav class="page-switch">
+    <a href="index.html">速背卡</a>
+    <a href="deep.html">深读</a>
+    <a class="active" href="quiz.html">检测题</a>
+  </nav>
+  <div class="header-stats">
+    <div id="dirSwitch"></div>
+    <div class="hstat"><b id="statDone">0</b><span>已做</span></div>
+    <div class="hstat"><b id="statAcc">--</b><span>正确率</span></div>
+    <div class="hstat warn"><b id="statDue">0</b><span>待复习</span></div>
+    <button class="icon-btn" id="themeBtn" aria-label="切换主题" title="切换明暗主题">◐</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="rail-head">
+      <div>
+        <p class="rail-eyebrow">题库导航</p>
+        <h2 class="rail-title">分类与筛选</h2>
+      </div>
+      <button class="icon-btn close-btn" id="closeBtn" aria-label="关闭">×</button>
+    </div>
+
+    <div class="sidebar-head">
+      <input id="quizSearch" class="search" type="search" placeholder="搜索题目 / 知识点…" autocomplete="off" />
+    </div>
+
+    <div class="rail-block">
+      <div class="rail-label">题库分类</div>
+      <div class="cat-list" id="catList"></div>
+    </div>
+
+    <div class="rail-block">
+      <div class="rail-label">面试频次</div>
+      <div class="chip-row" id="prioFilter">
+        <button class="chip active" data-prio="all">全部</button>
+        <button class="chip" data-prio="P0">P0</button>
+        <button class="chip" data-prio="P1">P1</button>
+        <button class="chip" data-prio="P2">P2</button>
+      </div>
+      <p class="prio-hint">P0 为三天精读范围</p>
+    </div>
+
+    <div class="rail-block">
+      <div class="rail-label">题型</div>
+      <div class="chip-row" id="typeFilter">
+        <button class="chip active" data-type="all">全部</button>
+        <button class="chip" data-type="single">单选</button>
+        <button class="chip" data-type="multi">多选</button>
+        <button class="chip" data-type="fill">填空</button>
+        <button class="chip" data-type="code">编程</button>
+      </div>
+    </div>
+
+    <div class="rail-block">
+      <div class="rail-label">状态</div>
+      <div class="chip-row" id="stateFilter">
+        <button class="chip active" data-state="all">全部</button>
+        <button class="chip" data-state="todo">未做</button>
+        <button class="chip" data-state="wrong">做错</button>
+        <button class="chip" data-state="right">做对</button>
+        <button class="chip" data-state="due">待复习</button>
+        <button class="chip" data-state="fav">收藏</button>
+      </div>
+    </div>
+
+    <div class="progress-block">
+      <div class="progress-head">
+        <span>题库进度</span>
+        <span id="progressText">0 / 0</span>
+      </div>
+      <div class="bar"><i id="progressBar"></i></div>
+      <div class="legend">
+        <span><i class="dot ok"></i>做对 <b id="legendRight">0</b></span>
+        <span><i class="dot no"></i>做错 <b id="legendWrong">0</b></span>
+        <span><i class="dot mid"></i>未做 <b id="legendTodo">0</b></span>
+      </div>
+    </div>
+
+    <div class="daily-block">
+      <div class="progress-head">
+        <span>今日目标</span>
+        <span id="dailyText">0 / 20</span>
+      </div>
+      <div class="bar"><i id="dailyBar"></i></div>
+      <div class="legend">
+        <span>连续打卡 <b id="streakDays">0</b> 天</span>
+        <span>待复习 <b id="dueCount">0</b></span>
+      </div>
+    </div>
+
+    <div class="sidebar-foot">
+      <button class="ghost-btn" id="exportBtn">导出记录</button>
+      <button class="ghost-btn" id="importBtn">导入记录</button>
+      <button class="ghost-btn" id="resetBtn">清空记录</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json,.json" hidden />
+  </aside>
+
+  <div class="scrim" id="scrim"></div>
+
+  <main class="stage">
+    <div class="stage-bar">
+      <nav class="view-tabs" id="topNav">
+        <button class="active" data-view="quiz">刷题</button>
+        <button data-view="wrong">错题本<span class="nav-cnt" id="wrongBadge">0</span></button>
+        <button data-view="stats">掌握情况</button>
+        <button data-view="exam" id="examTab" hidden>模考</button>
+      </nav>
+      <span class="stage-hint">数字键选项 · Enter 提交 / 下一题 · ←/→ 切题</span>
+    </div>
+
+    <!-- 刷题 -->
+    <section id="quizView">
+      <div class="focus-strip" id="focusStrip" hidden>
+        <span id="focusText"></span>
+        <button class="ghost-btn small" id="focusClear">清除定位</button>
+      </div>
+      <div class="due-strip" id="dueStrip">
+        <span class="due-ico">◷</span>
+        <span id="dueStripText">今天没有到期的题</span>
+        <button class="primary-btn small" id="dueStripBtn" hidden>开始复习</button>
+      </div>
+      <div class="quiz-toolbar">
+        <div class="mode-switch" id="modeSwitch">
+          <button class="mode active" data-mode="order">顺序</button>
+          <button class="mode" data-mode="random">随机</button>
+          <button class="mode" data-mode="wrong">只刷错题</button>
+          <button class="mode" data-mode="review">间隔复习</button>
+          <button class="mode" data-mode="smart">智能组卷</button>
+        </div>
+        <div class="deck-info">
+          <span id="deckPos">0 / 0</span>
+          <button class="ghost-btn small" id="buildBtn">组卷</button>
+          <button class="ghost-btn small" id="dueBtn">复习</button>
+          <button class="ghost-btn small" id="restartBtn">重开本轮</button>
+        </div>
+      </div>
+
+      <div class="build-panel" id="buildPanel" hidden>
+        <div class="bp-row">
+          <span class="bp-label">题量</span>
+          <div class="chip-row" id="bpCount">
+            <button class="chip" data-count="10">10</button>
+            <button class="chip active" data-count="20">20</button>
+            <button class="chip" data-count="30">30</button>
+          </div>
+        </div>
+        <div class="bp-row">
+          <span class="bp-label">难度</span>
+          <div class="chip-row" id="bpDiff">
+            <button class="chip active" data-diff="all">全部</button>
+            <button class="chip" data-diff="basic">基础</button>
+            <button class="chip" data-diff="hard">进阶</button>
+          </div>
+        </div>
+        <div class="bp-row">
+          <span class="bp-label">题型</span>
+          <div class="chip-row" id="bpType">
+            <button class="chip active" data-type="single">单选</button>
+            <button class="chip active" data-type="multi">多选</button>
+            <button class="chip active" data-type="fill">填空</button>
+            <button class="chip active" data-type="code">编程</button>
+          </div>
+        </div>
+        <div class="bp-row">
+          <span class="bp-label">限时</span>
+          <div class="chip-row" id="bpLimit">
+            <button class="chip active" data-limit="0">不限时</button>
+            <button class="chip" data-limit="15">15 分</button>
+            <button class="chip" data-limit="25">25 分</button>
+            <button class="chip" data-limit="40">40 分</button>
+          </div>
+        </div>
+        <div class="bp-actions">
+          <button class="primary-btn small" id="bpBuild">按配置组卷</button>
+          <button class="ghost-btn small" id="bpExam">开始模考</button>
+          <button class="ghost-btn small" id="bpClose">收起</button>
+        </div>
+        <p class="bp-hint">组卷只取当前分类/筛选范围内的题；模考只包含能自动判分的单选、多选、填空。</p>
+      </div>
+
+      <article class="quiz-card" id="quizCard">
+        <div class="q-meta">
+          <span class="badge" id="qCat">C++</span>
+          <span class="badge ghost" id="qCatAcc"></span>
+          <span class="badge ghost" id="qUnit"></span>
+          <span class="badge p-badge" id="qPrio" hidden></span>
+          <span class="badge t-single" id="qType">单选</span>
+          <span class="stars" id="qDiff"></span>
+          <button class="star" id="favBtn" type="button" title="收藏这道题">☆</button>
+        </div>
+
+        <div class="q-text" id="qText">加载中…</div>
+        <div class="q-body" id="qBody"></div>
+
+        <div class="q-actions" id="qActions">
+          <button class="primary-btn" id="submitBtn">提交答案<kbd>Enter</kbd></button>
+          <button class="ghost-btn" id="skipBtn">跳过</button>
+        </div>
+
+        <div class="feedback" id="feedback" hidden>
+          <div class="fb-head" id="fbHead"></div>
+          <div class="fb-line" id="fbYours"></div>
+          <div class="fb-line" id="fbRight"></div>
+          <div class="fb-explain" id="fbExplain"></div>
+          <button class="primary-btn" id="nextBtn">下一题 →</button>
+        </div>
+      </article>
+
+      <div class="empty card" id="quizEmpty" hidden>
+        <h3>没有匹配的题目</h3>
+        <p>换个分类、题型或状态筛选，或点“只刷错题”前先做几题。</p>
+      </div>
+
+      <div class="stage-nav">
+        <button class="nav-btn" id="prevBtn">← 上一题</button>
+        <span class="kbd-hint">数字键选项 · Enter 提交 / 下一题 · ←/→ 切题</span>
+        <button class="nav-btn" id="nextNav">下一题 →</button>
+      </div>
+    </section>
+
+    <!-- 模考 -->
+    <section id="examView" hidden>
+      <div class="exam-head">
+        <div class="exam-clock"><span id="examClockLabel">剩余</span> <b id="examClock">--:--</b></div>
+        <div class="exam-pos" id="examPos">0 / 0</div>
+        <div class="exam-actions">
+          <button class="ghost-btn small" id="examQuitBtn">退出</button>
+          <button class="primary-btn small" id="examSubmitBtn">交卷</button>
+        </div>
+      </div>
+      <article class="quiz-card" id="examCard">
+        <div class="q-meta">
+          <span class="badge" id="examCat">—</span>
+          <span class="badge ghost" id="examUnit"></span>
+          <span class="badge t-single" id="examType">单选</span>
+        </div>
+        <div class="q-text" id="examQText"></div>
+        <div class="q-body" id="examQBody"></div>
+        <div class="exam-nav">
+          <button class="nav-btn" id="examPrev">← 上一题</button>
+          <div class="exam-dots" id="examDots"></div>
+          <button class="nav-btn" id="examNext">下一题 →</button>
+        </div>
+      </article>
+      <div class="exam-result" id="examResult" hidden></div>
+    </section>
+
+    <!-- 错题本 -->
+    <section id="wrongView" hidden>
+      <div class="view-head">
+        <h2>错题本</h2>
+        <p>重做后需要<b>连续答对 2 次</b>才会移出错题本；答错一次计数归零。已毕业的题会留在页面底部“已毕业”归档里，记录不会丢。</p>
+      </div>
+      <div class="wrong-filters">
+        <div class="chip-row" id="wrongCatFilter"></div>
+        <div class="chip-row" id="wrongTypeFilter">
+          <button class="chip active" data-type="all">全部题型</button>
+          <button class="chip" data-type="single">单选</button>
+          <button class="chip" data-type="multi">多选</button>
+          <button class="chip" data-type="fill">填空</button>
+          <button class="chip" data-type="code">编程</button>
+        </div>
+      </div>
+      <div class="wrong-list" id="wrongList"></div>
+      <div class="empty card" id="wrongEmpty" hidden>
+        <h3>错题本是空的</h3>
+        <p>做错的题会自动收进来，并按分类与题型归好。</p>
+      </div>
+    </section>
+
+    <!-- 掌握情况 -->
+    <section id="statsView" hidden>
+      <div class="view-head">
+        <h2>掌握情况</h2>
+        <p>按分类和题型统计正确率，优先补正确率最低、样本够的分类。</p>
+      </div>
+      <div id="statsBody"></div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="dist/dirs.js"></script>
+<script src="store.js"></script>
+<script src="srs.js"></script>
+<script src="quiz.js?v=f57e45024d"></script>
+<script src="boot.js"></script>
+</body>
+</html>

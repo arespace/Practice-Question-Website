@@ -1,0 +1,369 @@
+[
+  {
+    "id": "d1-001",
+    "cat": "d1",
+    "unit": 1,
+    "unitTitle": "值传递与引用传递",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 C++ 参数传递，下列说法正确的是？",
+    "options": [
+      "传引用不占参数空间，因此一定比传值快",
+      "`const T&` 绑定临时量时不会构造任何对象",
+      "不存在空引用，`int& r = *p;` 在 `p` 为空时就是 UB",
+      "引用形参可以在函数体内重新绑定到另一个对象"
+    ],
+    "answer": [2],
+    "explain": "引用在语言层面不是对象，不能为空；`int& r = *p;` 只是把 `*p` 当左值绑定，`p` 为空时解引用本身就是 UB，引用不做任何检查。传引用底层通常按指针实现，仍有一次间接访问，小对象或本来就要副本时不一定更快；`const T&` 绑定临时量会先构造临时对象，延长的是寿命而不是省掉构造成本；引用绑定后不能改绑，`r = b` 只是赋值。"
+  },
+  {
+    "id": "d1-002",
+    "cat": "d1",
+    "unit": 1,
+    "unitTitle": "值传递与引用传递",
+    "type": "code",
+    "diff": 2,
+    "q": "下面程序运行后输出的 `copies` 是多少？请说明每个函数调用是否产生拷贝。\n```cpp\n#include <cstdio>\n\nstruct Counted {\n    static inline int copies = 0;\n    Counted() = default;\n    Counted(const Counted&) { ++copies; }\n};\n\nvoid byValue(Counted) {}\nvoid byRef(Counted&) {}\nvoid byConstRef(const Counted&) {}\n\nint main() {\n    Counted c;\n    byValue(c);\n    byRef(c);\n    byConstRef(c);\n    std::printf(\"copies=%d\\n\", Counted::copies);\n}\n```",
+    "ref": "输出 `copies=1`。只有 `byValue(c)` 触发一次拷贝构造（形参是独立对象）；`byRef(c)` 与 `byConstRef(c)` 只是把实参绑定成别名，不构造新对象。若再加 `void byRvalueRef(Counted&&)` 并用 `std::move(c)` 调用，结果仍是 `copies=1 moves=1`。",
+    "explain": "值传递执行拷贝初始化，形参是独立对象，所以 `byValue` 复制构造一次；引用形参不构造新对象，因此 `T&` 与 `const T&` 都不增加计数。易错点是把 `const T&` 理解成“完全不构造”，其实传给 `byConstRef(Counted{})` 时仍会先构造临时对象，只是不拷贝实参。"
+  },
+  {
+    "id": "d1-003",
+    "cat": "d1",
+    "unit": 2,
+    "unitTitle": "C 和 C++ 的区别",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 C 与 C++ 的差异以及 `extern \"C\"` 的作用，下列说法正确的有？",
+    "options": [
+      "C++ 不允许 `void*` 隐式转成 `T*`，所以 `int* p = malloc(n);` 迁到 C++ 需要 `static_cast<int*>`",
+      "`extern \"C\"` 会改变函数的调用约定",
+      "C++ 调用 C 函数时若不写 `extern \"C\"`，可能编译通过但链接报 undefined reference",
+      "C 是 C++ 的严格子集，变长数组和 `restrict` 在标准 C++ 中同样合法",
+      "`extern \"C\"` 只影响语言链接和名字修饰，函数体仍是普通 C/C++ 代码"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "`extern \"C\"` 声明的是语言链接，只让符号名按 C 规则命名而不做 C++ 修饰，调用约定由平台 ABI 决定，函数体不变；漏写时链接器找不到 C 目标文件里的未修饰符号。C++ 取消了 `void*` 到对象指针的隐式转换，所以 `malloc` 的返回值必须显式转换。C 只是“几乎兼容”：变长数组与 `restrict` 都不是标准 C++，跨语言头文件要用宏隔离。"
+  },
+  {
+    "id": "d1-004",
+    "cat": "d1",
+    "unit": 2,
+    "unitTitle": "C 和 C++ 的区别",
+    "type": "fill",
+    "diff": 2,
+    "q": "在 C++ 中调用 C 函数时，如果头文件缺少 ____ 声明，编译能通过但链接会报 undefined reference，原因是 C++ 会对符号名做修饰。",
+    "answer": ["extern \"C\"", "extern \"C\" 声明", "extern C", "extern\"C\""],
+    "explain": "C++ 的名字修饰把 `legacy_add` 变成 `_Z10legacy_addii` 之类的符号，而 C 目标文件里导出的是未修饰的 `legacy_add`，链接器自然找不到。`extern \"C\"` 只声明“这个符号按 C 规则命名”，不改变调用约定和函数体。它必须出现在 C++ 侧可见的声明上，通常用 `#ifdef __cplusplus` 包住。"
+  },
+  {
+    "id": "d1-005",
+    "cat": "d1",
+    "unit": 3,
+    "unitTitle": "左值、右值与 std::move",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 `std::move`，下列说法正确的是？",
+    "options": [
+      "`std::move(x)` 等价于 `static_cast<T&&>(x)`，本身不移动也不释放任何资源",
+      "`std::move` 会调用移动构造函数并把源对象置空",
+      "被 `std::move` 过的对象不能再析构或重新赋值",
+      "只要类型定义了移动构造，`std::move` 就一定不会退化成拷贝"
+    ],
+    "answer": [0],
+    "explain": "`std::move` 只是到 `T&&` 的类型转换，真正搬资源的是重载选出的移动构造/移动赋值，所以对 `int` 这类平凡类型也不会做无用功。移动后的源对象处于“有效但未指定”状态，可以析构、重新赋值，只是不能依赖原值。源对象是 `const` 时 `std::move` 得到 `const T&&`，匹配不到 `T&&` 移动构造，会静默退化为拷贝。"
+  },
+  {
+    "id": "d1-006",
+    "cat": "d1",
+    "unit": 3,
+    "unitTitle": "左值、右值与 std::move",
+    "type": "code",
+    "diff": 3,
+    "q": "`const std::string s = \"hello\"; std::string t = std::move(s);` 中 `t` 的构造走的是移动还是拷贝？为什么？",
+    "ref": "走拷贝构造。`std::move(s)` 的类型是 `const std::string&&`，而移动构造的形参是 `std::string&&`，`const` 右值无法绑定到非 const 右值引用，重载决议只能选 `const std::string&` 拷贝构造，且不报错。",
+    "explain": "关键在 `const` 让 `std::move` 的结果变成 `const T&&`，移动版本被排除，于是静默退化成拷贝——原文把它列为真实坑，因为代码表面看不出来。验证方式是在拷贝构造与移动构造里各打一次点，观察实际打印的是 copy 而不是 move。"
+  },
+  {
+    "id": "d1-007",
+    "cat": "d1",
+    "unit": 4,
+    "unitTitle": "列表初始化",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于列表初始化 `{}` 与圆括号 `()`，下列说法正确的有？",
+    "options": [
+      "`int x{3.14}` 编译失败，而 `int x(3.14)` 静默截断为 3",
+      "`std::vector<int> v{10}` 是含 1 个元素 10，而 `v(10)` 是 10 个 0",
+      "空 `{}` 对内置类型执行值初始化，`int x{}` 一定是 0",
+      "类同时有 `initializer_list` 构造和普通构造时，`{}` 仍优先匹配普通构造",
+      "`{}` 与 `()` 的重载决议规则完全相同，只是写法不同"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`{}` 禁止窄化，所以 `int x{3.14}` 直接报 narrowing conversion，而 `()` 按普通重载决议并允许截断。列表初始化会优先考虑 `initializer_list` 构造函数，这正是 `v{10}`（一个元素 10）与 `v(10)`（10 个 0）语义分裂的根源。空 `{}` 是值初始化，内置类型置零；只有 `int x;` 才是未初始化。"
+  },
+  {
+    "id": "d1-008",
+    "cat": "d1",
+    "unit": 4,
+    "unitTitle": "列表初始化",
+    "type": "code",
+    "diff": 2,
+    "q": "下面代码的输出顺序是什么？\n```cpp\n#include <cstdio>\n#include <initializer_list>\n\nstruct InitProbe {\n    InitProbe() { std::puts(\"default\"); }\n    explicit InitProbe(int) { std::puts(\"(int)\"); }\n    InitProbe(std::initializer_list<int> l) {\n        std::printf(\"list size=%zu\\n\", l.size());\n    }\n};\n\nint main() {\n    InitProbe a(3);\n    InitProbe b{3};\n    InitProbe c{1, 2};\n}\n```",
+    "ref": "输出依次为 `(int)`、`list size=1`、`list size=2`。`a(3)` 用圆括号，按普通重载决议选中 `explicit InitProbe(int)`；`b{3}`、`c{1,2}` 用花括号，优先匹配 `initializer_list<int>` 构造，元素个数分别是 1 和 2。",
+    "explain": "同一个类型 `()` 与 `{}` 走了不同构造函数，这是 `initializer_list` 优先规则最直接的观测方式。`explicit` 只限制拷贝初始化，不挡直接初始化 `a(3)`；`b{3}` 走的是列表初始化，不会调用 `(int)` 版本。"
+  },
+  {
+    "id": "d1-009",
+    "cat": "d1",
+    "unit": 5,
+    "unitTitle": "数组与指针",
+    "type": "single",
+    "diff": 2,
+    "q": "64 位平台上 `int a[10]{};`，执行 `std::printf(\"%zu %zu\", sizeof(*(a + 1)), sizeof(*(&a + 1)));` 的输出是？",
+    "options": ["4 4", "4 40", "40 4", "40 40"],
+    "answer": [1],
+    "explain": "`*(a + 1)` 的类型是 `int`，大小 4；`&a` 的类型是 `int(*)[10]`，`*(&a + 1)` 的类型是 `int[10]`，大小 40。`a` 退化后步长是一个元素，`&a` 的步长是整个数组——数值地址可能相同，但类型和步长不同。易错点是把 `&a + 1` 也当成“下一个 int”。"
+  },
+  {
+    "id": "d1-010",
+    "cat": "d1",
+    "unit": 5,
+    "unitTitle": "数组与指针",
+    "type": "code",
+    "diff": 2,
+    "q": "下面函数想遍历全部 10 个元素，但行为不对。找出问题并给出至少一种改法。\n```cpp\nvoid printAll(int a[10]) {\n    const std::size_t n = sizeof(a) / sizeof(a[0]);\n    for (std::size_t i = 0; i < n; ++i)\n        std::cout << a[i] << ' ';\n}\n```",
+    "ref": "问题：形参 `int a[10]` 被调整为 `int*`，`10` 被忽略；64 位下 `sizeof(a)` 是 8、`sizeof(a[0])` 是 4，`n` 恒为 2，只打印前两个元素。改法：① `template <std::size_t N> void printAll(const int (&a)[N])`；② 传 `std::array<int,10>`（或 C++20 的 `std::span`）；③ 显式多传一个长度参数 `void printAll(const int* a, std::size_t n)`。",
+    "explain": "数组在大多数表达式里退化为首元素指针，传参后长度信息丢失，函数内 `sizeof` 只能得到指针大小，这是原文“函数内算长度”的真实坑。用数组引用模板把 `N` 写进类型，或改用 `std::array`/`std::span`，才能在函数内保留长度。"
+  },
+  {
+    "id": "d1-011",
+    "cat": "d1",
+    "unit": 6,
+    "unitTitle": "sizeof 与 strlen",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `sizeof` 与 `strlen`，下列说法正确的有？",
+    "options": [
+      "`sizeof` 是运算符，除变长数组外操作数不求值，编译期就能得到字节数",
+      "`char s[] = \"abc\";` 中 `sizeof(s)` 为 4，`strlen(s)` 为 3",
+      "`sizeof(std::string)` 得到的是对象本身大小，与内容长度无关",
+      "`int* p = new int[10]; sizeof(p)` 得到 40",
+      "对 `std::string` 求长度应该用 `strlen(s.c_str())`"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`sizeof` 求类型/对象的字节数，`strlen` 运行期扫描到 `'\\0'` 前的字节数，前者含结尾 `'\\0'`，所以 `char s[] = \"abc\"` 是 4 对 3。`new[]` 返回的是指针，`sizeof(p)` 恒为指针大小（64 位为 8），不可能得到 40。`std::string` 的长度用 `s.size()`；内容本身含 `'\\0'` 时 `strlen(s.c_str())` 还会提前截断。"
+  },
+  {
+    "id": "d1-012",
+    "cat": "d1",
+    "unit": 6,
+    "unitTitle": "sizeof 与 strlen",
+    "type": "fill",
+    "diff": 1,
+    "q": "`sizeof` 的操作数（变长数组除外）____ 被求值，因此 `sizeof(f())` 不会调用函数 `f`。",
+    "answer": ["不会", "不会求值", "不被求值", "不求值"],
+    "explain": "`sizeof` 只需要操作数的类型信息，标准规定不对外层表达式求值，所以 `sizeof(f())` 只得到返回类型的字节数，不会产生调用。这也是 `sizeof(*(a + 1))` 不会真的越界访问的原因。"
+  },
+  {
+    "id": "d1-013",
+    "cat": "d1",
+    "unit": 7,
+    "unitTitle": "nullptr 与 NULL",
+    "type": "single",
+    "diff": 2,
+    "q": "有重载 `void f(int)` 与 `void f(void*)`，在 GCC/Clang 上调用 `f(NULL)` 的结果是？",
+    "options": [
+      "确定调用 `f(int)`",
+      "确定调用 `f(void*)`",
+      "两个重载都可行，报歧义、编译失败",
+      "编译通过，运行期崩溃"
+    ],
+    "answer": [2],
+    "explain": "这些实现里 `NULL` 是 `__null`，两个重载都可行且无法分出更优者，于是报 `call of overloaded 'f(NULL)' is ambiguous`。某些实现把 `NULL` 定义成整数 0 时才可能选 `f(int)`，所以结果与实现有关；换成 `f(nullptr)` 必然调用 `f(void*)`。"
+  },
+  {
+    "id": "d1-014",
+    "cat": "d1",
+    "unit": 7,
+    "unitTitle": "nullptr 与 NULL",
+    "type": "code",
+    "diff": 2,
+    "q": "GCC 64 位下，下面两次实例化的模板参数 `T` 分别是什么？\n```cpp\ntemplate <class T> void g(T) {}\n\ng(NULL);\ng(nullptr);\n```",
+    "ref": "`g(NULL)`：`T` 推导为整数类型，GCC 64 位下是 `long long`（`std::is_integral_v<T>` 为真）；`g(nullptr)`：`T` 推导为 `std::nullptr_t`。",
+    "explain": "模板推导保留 `NULL` 的整数类型，而 `nullptr` 有独立类型 `std::nullptr_t`，可隐式转任意指针但不可转整数。泛型代码里传 `NULL` 会实例化出意外的类型，后续把 `T` 当指针用就编译失败——这正是原文强调“模板里更要用 `nullptr`”的原因。"
+  },
+  {
+    "id": "d1-015",
+    "cat": "d1",
+    "unit": 8,
+    "unitTitle": "指针与引用",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于指针与引用，下列说法正确的有？",
+    "options": [
+      "引用必须初始化、绑定后不能改绑，且不存在空引用",
+      "类里有引用成员时，编译器生成的拷贝赋值运算符被定义为 deleted",
+      "`sizeof(引用)` 得到被引用类型的大小，`sizeof(指针)` 是指针大小",
+      "`int& r = *p;` 在 `p == nullptr` 时是安全的，引用会做空检查",
+      "指针和引用可以完全互换，区别只是语法"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "引用是“终身绑定”的别名，语言层面不占独立对象，`sizeof` 给的是被引用类型；但 `int& r = *p;` 只是把 `*p` 当左值绑定，`p` 为空时解引用就是 UB，引用不做任何检查。引用成员让隐式拷贝赋值被删除，类可能因此无法放进要求元素可赋值的容器。指针可空、可重指向、可做算术，两者语义不同，不能互换。"
+  },
+  {
+    "id": "d1-016",
+    "cat": "d1",
+    "unit": 8,
+    "unitTitle": "指针与引用",
+    "type": "code",
+    "diff": 2,
+    "q": "下面类型能否被拷贝赋值？改成什么写法可以恢复可赋值？\n```cpp\nstruct RefHolder { int& r; };\n```",
+    "ref": "不能。引用成员使编译器隐式生成的拷贝赋值运算符被定义为 deleted，`static_assert(!std::is_copy_assignable_v<RefHolder>)` 可以通过；因此需要元素可赋值的容器操作（如 `erase`、`insert`、整体赋值）会编译失败。改成 `int* p;` 即可恢复可赋值，同时要自己处理空指针检查。",
+    "explain": "引用一经构造就不能改绑，赋值语义无处安放，标准直接把拷贝赋值定义为 deleted，这是类型系统层面的删除而非运行时限制。原文的真实坑还包括“误以为引用不占空间”：结构体里的引用成员实际仍占一个指针的布局。"
+  },
+  {
+    "id": "d1-017",
+    "cat": "d1",
+    "unit": 9,
+    "unitTitle": "整型宽度：short、int、long、long long",
+    "type": "single",
+    "diff": 2,
+    "q": "关于整型宽度，下列说法正确的是？",
+    "options": [
+      "标准保证 `int` 一定是 4 字节、`long` 一定是 8 字节",
+      "Windows 采用 LP64 模型，`long` 是 8 字节",
+      "标准只保证最小范围和 `short <= int <= long <= long long` 的相对大小，不保证字节数",
+      "无符号整数溢出和 `int` 溢出一样，都是未定义行为"
+    ],
+    "answer": [2],
+    "explain": "具体宽度由平台 ABI 决定：Windows 是 LLP64（`long` 4 字节），Linux/macOS 是 LP64（`long` 8 字节），所以跨平台协议要用 `<cstdint>` 的定宽类型并用 `static_assert` 锁定。有符号溢出是 UB，无符号按 2^N 回绕、行为有定义，两者不能混为一谈。"
+  },
+  {
+    "id": "d1-018",
+    "cat": "d1",
+    "unit": 9,
+    "unitTitle": "整型宽度：short、int、long、long long",
+    "type": "fill",
+    "diff": 2,
+    "q": "`std::uint8_t a = 250; int sum = a + 10;` 中 `sum` 的值是 ____，因为小整型参与运算前会先整型提升到 `int`。",
+    "answer": ["260"],
+    "explain": "小整型在运算前提升为 `int`，所以 `250 + 10` 以 `int` 计算得到 260，不会在 8 位回绕；只有赋回 `std::uint8_t` 时才截断成 4（260 % 256）。原文的验证程序同时打印 `a + 10` 与 `static_cast<std::uint8_t>(a + 10)`，得到 260 和 4。"
+  },
+  {
+    "id": "d1-019",
+    "cat": "d1",
+    "unit": 10,
+    "unitTitle": "常量指针与指针常量",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `const` 与指针，下列说法正确的有？",
+    "options": [
+      "`const int*` 与 `int const*` 是同一类型，都锁 `*p` 而不锁 `p`",
+      "`int* const p` 锁的是指针本身，但仍可通过 `*p` 修改数据",
+      "顶层 `const` 不参与重载决议，`f(int*)` 与 `f(int* const)` 是同一签名",
+      "`typedef int* P; const P p;` 中 `const` 锁的是数据，等价于 `const int*`",
+      "`const int*` 可以隐式转成 `int*`，只是不推荐"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "口诀是 `const` 修饰它左边的东西，左边没有类型就修饰右边：`const int*` 锁数据、`int* const` 锁指针，两个都写就都锁。`typedef int* P` 后 `const P` 是 `int* const`（顶层 const），锁的是指向，这是常见陷阱。按值传参时顶层 `const` 会被丢掉，所以不进重载；`const int*` 转 `int*` 必须 `const_cast`，且不能真的写。"
+  },
+  {
+    "id": "d1-020",
+    "cat": "d1",
+    "unit": 10,
+    "unitTitle": "常量指针与指针常量",
+    "type": "code",
+    "diff": 2,
+    "q": "指出下面各行哪些编译失败，并说明原因。\n```cpp\nint x = 1, y = 2;\nconst int* p1 = &x;\nint* const p2 = &x;\np1 = &y;\n*p1 = 3;\np2 = &y;\n*p2 = 3;\n```",
+    "ref": "编译失败的是 `*p1 = 3;`（`p1` 是 `const int*`，底层 const，不能通过它写数据，报“读只读对象”）和 `p2 = &y;`（`p2` 是 `int* const`，顶层 const，不能改指向，报“读只读变量”）。合法的是 `p1 = &y;`（改指向）与 `*p2 = 3;`（改数据）。",
+    "explain": "两类报错文本正好对应底层/顶层 const：`*p1` 是只读对象，`p2` 是只读变量。原文建议逐行取消注释编译来区分两种 const；另外 `decltype(p2)` 带着顶层 const，但按值传给模板时 `T` 会推成 `int*`，这正是顶层 const 不进重载的原因。"
+  },
+  {
+    "id": "d1-021",
+    "cat": "d1",
+    "unit": 11,
+    "unitTitle": "函数指针",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于函数指针，下列说法正确的有？",
+    "options": [
+      "无捕获 lambda 可以隐式转换成同签名的函数指针，有捕获的不能",
+      "作为值使用时 `f` 与 `&f` 等价，函数名会退化为函数指针",
+      "通过函数指针调用是间接调用，通常无法内联，热路径上频繁回调有开销",
+      "普通函数指针可以直接指向类的非静态成员函数",
+      "函数指针可以携带捕获的状态，所以能替代 `std::function`"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "无捕获 lambda 没有状态，可退化为同签名函数指针；有捕获的必须携带对象，只能放进 `std::function` 或模板。函数名在表达式里退化为指针，所以传回调写函数名即可。通过指针调用时目标运行期才确定，编译器一般不能内联。成员函数指针类型里带类名、调用需要对象，与普通函数指针 ABI 不同，不能混用。"
+  },
+  {
+    "id": "d1-022",
+    "cat": "d1",
+    "unit": 11,
+    "unitTitle": "函数指针",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的 `qsort` 比较器有什么隐患？给出改法。\n```cpp\nint cmpInt(const void* a, const void* b) {\n    return *static_cast<const int*>(a) - *static_cast<const int*>(b);\n}\n```",
+    "ref": "隐患：两个 `int` 直接相减可能溢出（如 `INT_MAX - INT_MIN`），有符号溢出是 UB，比较结果的符号也不可靠。改法用三态比较：\n```cpp\nint lhs = *static_cast<const int*>(a);\nint rhs = *static_cast<const int*>(b);\nreturn (lhs > rhs) - (lhs < rhs);\n```",
+    "explain": "`qsort` 只要求比较器返回负数/0/正数，直接相减在极值下溢出，原文把“比较器减法溢出”列为真实坑。另一个易错点是签名必须精确匹配 `int(*)(const void*, const void*)`，强转成别的签名再调用是 UB。"
+  },
+  {
+    "id": "d1-023",
+    "cat": "d1",
+    "unit": 12,
+    "unitTitle": "函数指针与指针函数",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于函数指针与指针函数，下列说法正确的有？",
+    "options": [
+      "`int (*f)(int)` 是函数指针变量，`int* f(int)` 是返回指针的函数",
+      "`int* identity(int*)` 的 `&identity` 类型是 `int* (*)(int*)`，比普通函数指针多一层“返回指针”",
+      "返回指针的函数一定返回堆内存，必须由调用方 `delete`",
+      "`int (*arr[3])(int)` 中 arr 是数组，元素是函数指针，元素签名必须一致",
+      "函数指针数组里可以混放任意签名的函数，调用时再强转"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "两者名字顺序不同、本质不同：带括号的是变量（指向函数），不带括号的是函数（返回指针）。`int* identity(int*)` 本身是函数类型，取地址后多一层“返回 `int*`”。返回指针不一定来自堆，也可能指向调用方对象或静态对象，关键是生命周期契约；函数指针数组元素是固定签名，混签名强转后调用是 UB。"
+  },
+  {
+    "id": "d1-024",
+    "cat": "d1",
+    "unit": 12,
+    "unitTitle": "函数指针与指针函数",
+    "type": "fill",
+    "diff": 1,
+    "q": "`int (*f)(int)` 中 f 是 ____，而 `int* f(int)` 中 f 是一个返回指针的函数。",
+    "answer": ["函数指针变量", "函数指针", "变量", "指针变量"],
+    "explain": "读声明从标识符出发，先向右看再向左看：`(*f)` 先说明 f 是指针，再向右看到参数列表，说明它指向“接收 int 返回 int”的函数。`int* f(int)` 没有括号包住 `*f`，所以 f 是函数名、返回 `int*`。函数指针本身是变量，运行期还能改指向同签名的另一个函数。"
+  },
+  {
+    "id": "d1-025",
+    "cat": "d1",
+    "unit": 13,
+    "unitTitle": "静态局部变量、全局变量、局部变量",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于变量与 `static`，下列说法正确的有？",
+    "options": [
+      "函数内 `static` 局部变量是静态存储期，首次执行到声明时构造，作用域仍在函数内",
+      "函数内 `static` 初始化线程安全，所以后续多线程读写同一变量也安全",
+      "文件作用域的 `static` 改变的是链接（内部链接），不是存储期",
+      "头文件里写 `static int g = 0;` 会被所有 TU 共享同一个变量",
+      "跨 TU 全局对象构造顺序未定义，可用函数内 `static` 延迟到首次使用来规避"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "变量要按存储期、链接、作用域三个维度看：函数内 `static` 改的是存储期（静态），作用域仍是块；文件作用域 `static` 改的是链接（内部链接），每个 TU 各有一份副本，所以头文件里这么写不会共享。C++11 只保证首次初始化（magic statics）线程安全，之后的读写仍是普通数据竞争。跨 TU 全局对象初始化顺序未定义，函数内 `static` 把构造推迟到首次调用，绕开静态初始化顺序灾难。"
+  },
+  {
+    "id": "d1-026",
+    "cat": "d1",
+    "unit": 13,
+    "unitTitle": "静态局部变量、全局变量、局部变量",
+    "type": "code",
+    "diff": 2,
+    "q": "下面程序的输出顺序是什么？\n```cpp\n#include <cstdio>\n\nstruct Probe {\n    Probe()  { std::puts(\"construct\"); }\n    ~Probe() { std::puts(\"destruct\"); }\n};\n\nProbe& probe() { static Probe p; return p; }\n\nint main() {\n    std::puts(\"before first call\");\n    probe();\n    probe();\n    std::puts(\"after calls\");\n}\n```",
+    "ref": "`before first call` → `construct` → `after calls` → `destruct`。`static Probe p;` 在第一次调用 `probe()` 时才构造，第二次调用不再构造；静态存储期对象的析构在 `main` 返回后发生（按构造逆序），所以 `destruct` 最后打印。",
+    "explain": "这是“静态存储期 + 块作用域”的组合效果：构造推迟到首次执行到声明处，寿命延伸到程序结束。若在 `probe()` 之前还有跨 TU 的全局 `Probe` 对象，`construct` 可能跑到 `before first call` 之前，这正是静态初始化顺序问题的可观测形态。"
+  }
+]

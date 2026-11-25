@@ -1,0 +1,422 @@
+[
+  {
+    "id": "d3-001",
+    "cat": "d3",
+    "unit": 27,
+    "unitTitle": "大端序与小端序",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 `htonl/ntohl` 的适用范围，下列哪项与原文一致？",
+    "options": [
+      "它们能处理 16 位、32 位和 64 位整数，而且是 C++ 标准库的一部分",
+      "只有 16 位（`htons/ntohs`）和 32 位（`htonl/ntohl`）版本，64 位要自己逐字节处理；它们来自 POSIX/Windows 头文件而非 C++ 标准库",
+      "它们只做算术层面的转换，所以与本机字节序无关",
+      "因为 x86 是小端，调用后本机内存里的字节顺序会被就地改写"
+    ],
+    "answer": [1],
+    "explain": "`htonl/ntohl` 只有 16 位和 32 位两套，声明在 POSIX `<arpa/inet.h>` 或 Windows `<winsock2.h>`，不属于 C++ 标准库，64 位需要逐字节处理。它们转换的是“值”的主机序与网络序，并不改动本机内存布局；字节序也不影响算术结果，所以把两者混为一谈是常见误解。",
+    "src": "深读.md#unit-27"
+  },
+  {
+    "id": "d3-002",
+    "cat": "d3",
+    "unit": 27,
+    "unitTitle": "大端序与小端序",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的字节序判定在标准 C++ 里有什么问题？请给出改用 `memcpy` 的等价写法。\n```cpp\nbool isLittleEndian() {\n    union { std::uint32_t i; unsigned char c[4]; } u;\n    u.i = 1;\n    return u.c[0] == 1;\n}\n```",
+    "ref": "问题：写入 `u.i` 后读 `u.c` 属于读非活跃联合体成员，在 C++ 中是 UB，开优化后结果可能被折叠成常量。改法：\n```cpp\nbool isLittleEndian() {\n    const std::uint32_t v = 0x01020304u;\n    unsigned char b[4];\n    std::memcpy(b, &v, sizeof v);\n    return b[0] == 0x04;\n}\n```\n判定要点：`memcpy` 到字节数组是观察对象表示，不做类型双关；小端时最低有效字节 `0x04` 落在低地址。",
+    "explain": "原文把“用 `union` 检测字节序”列为常见误解：C 里常见，但 C++ 读非活跃联合体成员是 UB。`memcpy` 到 `unsigned char[4]` 只观察对象表示，语义干净且同样会被优化掉。判定时看首字节是否是最低有效字节即可。",
+    "src": "深读.md#unit-27"
+  },
+  {
+    "id": "d3-003",
+    "cat": "d3",
+    "unit": 28,
+    "unitTitle": "new/malloc、delete/free 的区别",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `new/delete` 与 `malloc/free` 的差异，下列哪些说法正确？",
+    "options": [
+      "`new T(args)` 先调用 `operator new` 分配，再调用构造函数；构造抛异常时已分配的内存会自动回收",
+      "`malloc` 只返回原始内存，对非平凡类型必须再用定位 `new` 构造，否则使用是 UB",
+      "`new` 失败默认返回 `nullptr`，所以判空就足够安全",
+      "`operator new/delete` 可以按类重载，`malloc/free` 只能整体替换 C 分配器"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "`new` 默认失败时抛 `std::bad_alloc`，只有 `new (std::nothrow)` 版本返回空指针，所以“判空就够”错在把异常语义当成返回值语义。`new` 表达式把分配与构造绑定，`malloc` 只给字节，非平凡类型不构造就使用是 UB。可重载性也是两者的关键差异：想给某个类做对象池只能重载 `operator new`。",
+    "src": "深读.md#unit-28"
+  },
+  {
+    "id": "d3-004",
+    "cat": "d3",
+    "unit": 28,
+    "unitTitle": "new/malloc、delete/free 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段用 `malloc` + 定位 `new` 管理非平凡类型，问题出在哪？\n```cpp\nstruct Widget {\n    explicit Widget(int v) : value(v) {}\n    ~Widget() { std::cout << \"dtor \" << value << '\\n'; }\n    std::string name;\n    int value;\n};\n\nvoid* raw = std::malloc(sizeof(Widget));\nWidget* b = new (raw) Widget(2);\nstd::free(raw);\n```",
+    "ref": "缺少显式析构。正确写法：\n```cpp\nvoid* raw = std::malloc(sizeof(Widget));\nWidget* b = new (raw) Widget(2);\nb->~Widget();      // 显式析构，std::string 成员的堆内存才会释放\nstd::free(raw);\n```\n判定要点：定位 `new` 只构造不分配，配对的是显式 `b->~Widget()` 再 `free`；三件套顺序不能错，对定位 `new` 的对象调用 `delete` 也会试图释放不属于分配器的内存。",
+    "explain": "`free` 只释放字节，不会执行析构；`Widget` 含 `std::string` 成员时，漏掉析构会让其内部堆内存永久泄漏。定位 `new` 的正确配对是“定位 `new` → 显式 `~Widget()` → `free`”，这也是原文强调的三件套。",
+    "src": "深读.md#unit-28"
+  },
+  {
+    "id": "d3-005",
+    "cat": "d3",
+    "unit": 29,
+    "unitTitle": "new 和 delete 为什么必须配对",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `new/delete` 必须配对，下列哪些说法正确？",
+    "options": [
+      "`new T[n]` 必须配 `delete[]`，交叉使用是 UB，可能只析构首个元素",
+      "构造函数抛异常时，编译器会自动调用匹配的 `operator delete` 回收内存，但对象析构不执行",
+      "对 `nullptr` 执行 `delete` 是 UB，必须先判空",
+      "自定义 `operator new` 必须配同签名的 `operator delete`，否则分配器状态会错乱"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "标准规定 `delete nullptr` 是安全的空操作，所以“必须判空”那项错。数组形式通常多存一个元素个数/块大小 cookie，但那是实现细节而非标准要求；交叉使用 `delete` 与 `delete[]` 属于 UB，轻则其余元素不析构，重则堆元数据被破坏。构造抛异常时编译器会调用匹配释放函数，所以 `new` 本身不会泄漏。",
+    "src": "深读.md#unit-29"
+  },
+  {
+    "id": "d3-006",
+    "cat": "d3",
+    "unit": 29,
+    "unitTitle": "new 和 delete 为什么必须配对",
+    "type": "code",
+    "diff": 2,
+    "q": "下面代码在第一次打印时输出什么？\n```cpp\nstruct Tracked {\n    static inline int live = 0, allocs = 0, deallocs = 0;\n    static void* operator new(std::size_t n) { ++allocs; return ::operator new(n); }\n    static void operator delete(void* p) noexcept { ++deallocs; ::operator delete(p); }\n    static void* operator new[](std::size_t n) { ++allocs; return ::operator new[](n); }\n    static void operator delete[](void* p) noexcept { ++deallocs; ::operator delete[](p); }\n    Tracked() { ++live; }\n    ~Tracked() { --live; }\n};\n\nTracked* one = new Tracked;\nTracked* arr = new Tracked[3];\nstd::cout << Tracked::live << ' ' << Tracked::allocs << '\\n';   // ?\n```",
+    "ref": "输出 `4 2`。判定要点：`new Tracked` 构造 1 个对象、`new Tracked[3]` 构造 3 个，`live == 4`；标量与数组各走一次分配函数，`allocs == 2`（数组形式只算一次分配，不是 3 次）。随后执行 `delete one; delete[] arr;`，第二次打印应为 `0 2`。",
+    "explain": "`new T[n]` 只调用一次 `operator new[]`，再连续构造 n 个元素，所以 `live` 加 3、`allocs` 只加 1。只有 `allocs == deallocs` 才说明走了正确配对路径；错配时 ASan 会报 alloc-dealloc-mismatch。",
+    "src": "深读.md#unit-29"
+  },
+  {
+    "id": "d3-007",
+    "cat": "d3",
+    "unit": 30,
+    "unitTitle": "堆内存与栈内存",
+    "type": "single",
+    "diff": 2,
+    "q": "关于堆与栈，下列哪项与原文一致？",
+    "options": [
+      "栈一定比堆快，包括访问速度也一定更快",
+      "`std::vector<int>` 的容器对象和元素缓冲区都在堆上",
+      "栈大小由线程决定，Linux 默认常见 8 MB，Windows 默认常见 1 MB",
+      "栈溢出只可能由深递归触发，单个大局部数组不会爆栈"
+    ],
+    "answer": [2],
+    "explain": "栈的分配/释放一定更快，但访问速度取决于缓存局部性，通常更好而非绝对，所以“一定更快”把结论说过头了。`std::vector` 的对象（三个指针）在栈上、元素缓冲区在堆上。单个大局部数组同样能爆栈，Windows 的 1 MB 默认栈比 Linux 更早触发。",
+    "src": "深读.md#unit-30"
+  },
+  {
+    "id": "d3-008",
+    "cat": "d3",
+    "unit": 30,
+    "unitTitle": "堆内存与栈内存",
+    "type": "fill",
+    "diff": 2,
+    "q": "局部变量占多少栈空间由编译器预先算好，因此栈数组的长度必须在____期确定；长度运行期才知道时应改用 `std::vector<T>` 或 `new T[n]`。",
+    "answer": ["编译", "编译期", "compile time", "compile-time"],
+    "explain": "栈帧大小必须在编译期确定，编译器才能用“挪栈指针”实现近乎零成本的分配与释放。`int a[n]` 这种 VLA 是 C99 特性、不是标准 C++，MSVC 不支持；运行期长度只能交给堆。",
+    "src": "深读.md#unit-30"
+  },
+  {
+    "id": "d3-009",
+    "cat": "d3",
+    "unit": 31,
+    "unitTitle": "尾递归优化与栈内存管理",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于尾调用与尾递归，下列哪些说法正确？",
+    "options": [
+      "`return n * f(n - 1);` 不是尾调用，因为调用返回后还要用返回值做乘法",
+      "C++ 标准不要求尾调用优化，`-O0` 下栈深仍是 O(n)，深递归照样爆栈",
+      "只要源码写成尾递归，任何编译器和优化级别下都不会爆栈",
+      "作用域里有带非平凡析构的局部对象会阻止尾调用，因为析构必须在调用返回后执行"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "尾调用要求 `return f(args);` 是最后动作，返回后不再计算、不再析构；乘法要用返回值，必须保留当前栈帧。TCO 只是 as-if 规则允许的实现优化，标准不承诺，所以“写成尾递归就一定不爆栈”是常见误解。局部对象析构让栈帧无法提前复用，是 C++ 特有的阻碍。",
+    "src": "深读.md#unit-31"
+  },
+  {
+    "id": "d3-010",
+    "cat": "d3",
+    "unit": 31,
+    "unitTitle": "尾递归优化与栈内存管理",
+    "type": "code",
+    "diff": 2,
+    "q": "把下面的普通递归改写成尾递归（用累加器），使递归调用成为 `return` 的唯一表达式。\n```cpp\nlong long factorial(int n) {\n    if (n <= 1) return 1;\n    return n * factorial(n - 1);\n}\n```",
+    "ref": "```cpp\nlong long factorialTail(int n, long long acc = 1) {\n    if (n <= 1) return acc;\n    return factorialTail(n - 1, acc * n);\n}\n```\n判定要点：乘法 `acc * n` 提前到实参里计算，`return` 后不再有任何运算。若写成 `return acc * factorialTail(...)`，就又变成非尾调用。",
+    "explain": "尾调用的判定条件是“调用返回后无待办”，所以要把调用之后的乘法搬到参数里，用累加器提前算完，让递归调用直接成为返回值。原文同时强调，即使改写成尾递归也不能保证被优化，要常量栈深应直接写迭代或显式栈。",
+    "src": "深读.md#unit-31"
+  },
+  {
+    "id": "d3-011",
+    "cat": "d3",
+    "unit": 32,
+    "unitTitle": "memcpy、memmove、strcpy 的区别",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `memcpy`、`memmove`、`strcpy`，下列哪些说法正确？",
+    "options": [
+      "`memcpy` 要求源和目的不重叠，重叠时是 UB；重叠搬移必须用 `memmove`",
+      "`memmove` 允许重叠，语义等价于先复制到临时缓冲区",
+      "`strncpy` 比 `strcpy` 安全，因为它一定会补上终止符 `'\\0'`",
+      "`memcpy` 只复制字节、不调用构造/赋值，只对平凡可复制类型成立"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "`strncpy` 在源长度不小于 `n` 时不补 `'\\0'`，后续按字符串使用仍会越界读，所以它不是安全替代。`memcpy` 可以不判方向、直接向量化，前提是区域不重叠；`memmove` 才做方向判断，语义等价于“临时缓冲区 + memcpy”。三者都不做边界检查，边界要调用方保证。",
+    "src": "深读.md#unit-32"
+  },
+  {
+    "id": "d3-012",
+    "cat": "d3",
+    "unit": 32,
+    "unitTitle": "memcpy、memmove、strcpy 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面代码执行后 `buf` 的内容是什么？\n```cpp\nchar buf[16] = \"0123456789\";\nstd::memmove(buf + 2, buf, 5);\nstd::cout << buf << '\\n';\n```",
+    "ref": "输出 `0101234789`。判定要点：把前 5 个字符 `01234` 搬到下标 2 起的 5 个位置，覆盖原来的 `23456`，其余 `789` 不动。同一缓冲区内搬移必须用 `memmove`；换成 `memcpy` 是 UB，`-O2` 下可能因向量化复制出比预期更多的字节。",
+    "explain": "`memmove` 检测到目的地址高于源地址时从后往前复制，结果等价于先拷到临时缓冲区。`memcpy` 假定源目的不重叠，这里区域重叠，行为未定义，所以不能依赖它的输出。原文的可观察验证正是拿这两个版本做对比。",
+    "src": "深读.md#unit-32"
+  },
+  {
+    "id": "d3-013",
+    "cat": "d3",
+    "unit": 33,
+    "unitTitle": "深拷贝、浅拷贝与标准拷贝构造",
+    "type": "single",
+    "diff": 3,
+    "q": "关于用 copy-and-swap 写拷贝赋值，下列哪项正确？",
+    "options": [
+      "它只是让代码更短，异常安全仍需在每个分支写 `try/catch`",
+      "它按值接收参数、在副本上修改后 `swap`，副本构造失败时原对象完全不变，天然满足强异常安全（前提是 `swap` 不抛）",
+      "它只能处理拷贝赋值，不能同时覆盖移动赋值",
+      "它无法处理自赋值，必须额外加 `if (this != &other)` 判断"
+    ],
+    "answer": [1],
+    "explain": "`operator=(Buffer other)` 的参数按值构造，自赋值时 `other` 是独立副本，先改副本再交换，所以不需要自赋值判断也安全。一个按值参数同时吃拷贝赋值和移动赋值。强保证的结构性来源是“副本 + 不抛的 `swap`”，而不是逐点 `try/catch`。",
+    "src": "深读.md#unit-33"
+  },
+  {
+    "id": "d3-014",
+    "cat": "d3",
+    "unit": 33,
+    "unitTitle": "深拷贝、浅拷贝与标准拷贝构造",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的类没有写拷贝构造，`Raw b = a;` 后程序在作用域结束时会怎样？如何修？\n```cpp\nclass Raw {\npublic:\n    explicit Raw(const char* s) : n_(std::strlen(s)), p_(new char[n_ + 1]) {\n        std::memcpy(p_, s, n_ + 1);\n    }\n    ~Raw() { delete[] p_; }\nprivate:\n    std::size_t n_;\n    char* p_;\n};\n\nint main() {\n    Raw a(\"abc\");\n    Raw b = a;\n}\n```",
+    "ref": "问题：默认拷贝构造逐成员复制，`b.p_` 与 `a.p_` 指向同一块堆内存；作用域结束时先析构 `b` 再析构 `a`，对同一指针 `delete[]` 两次，ASan 报 double-free。修法（三法则）是补深拷贝构造，为指针另分配一份并复制内容：\n```cpp\nRaw(const Raw& o) : n_(o.n_), p_(new char[o.n_ + 1]) {\n    std::memcpy(p_, o.p_, n_ + 1);\n}\n```\n并补拷贝赋值（推荐 copy-and-swap）；更省事的做法是成员改用 `std::string` 或 `std::vector<char>`，遵循零法则。",
+    "explain": "深浅拷贝的差别在资源而不是“有没有调用拷贝构造”：默认拷贝只复制指针值，两个对象共用一份资源。原文的可观察验证中两个 `%p` 输出相同，作用域结束时 double-free。只写析构不写拷贝是典型的三法则违规。",
+    "src": "深读.md#unit-33"
+  },
+  {
+    "id": "d3-015",
+    "cat": "d3",
+    "unit": 34,
+    "unitTitle": "C++ 内存分区",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 C++ 内存分区，下列哪些说法正确？",
+    "options": [
+      "标准只规定存储期、链接和作用域；代码段/数据段/BSS 是链接器和操作系统的实现方式",
+      "字符串字面量通常在只读数据段，写 `\"abc\"[0] = 'x'` 是 UB",
+      "BSS 里的变量不占内存，所以可以随意放巨型数组",
+      "已初始化（非零）的全局/静态对象在 `.data`；零初始化或未显式初始化的在 `.bss`"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "BSS 只是不占可执行文件体积，运行时仍占虚拟内存，巨型数组会让虚拟内存暴涨甚至触发 OOM，所以“不占内存”那项错。字符串字面量在只读段，改写是 UB（常见段错误）。`.data`/`.bss` 的划分依据是是否有非零初值，且具体段名由实现决定。",
+    "src": "深读.md#unit-34"
+  },
+  {
+    "id": "d3-016",
+    "cat": "d3",
+    "unit": 34,
+    "unitTitle": "C++ 内存分区",
+    "type": "fill",
+    "diff": 2,
+    "q": "常见实现中，未初始化或零初始化的全局/静态对象放在 ____ 段，可执行文件只记录该段大小，加载时统一清零。",
+    "answer": [".bss", "bss", "BSS", "Bss"],
+    "explain": "`.bss` 的内容全为 0，文件只需记录大小，加载时由内核映射零页或清零；显式给了非零初值的对象才进 `.data`。这也是巨型全局数组让文件几乎不变、虚拟内存却暴涨的原因。标准只规定初始化语义，不规定段名。",
+    "src": "深读.md#unit-34"
+  },
+  {
+    "id": "d3-017",
+    "cat": "d3",
+    "unit": 35,
+    "unitTitle": "智能指针的种类与所有权",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于智能指针的所有权与实现，下列哪些说法正确？",
+    "options": [
+      "`unique_ptr` 独占所有权、只能移动，默认删除器下大小与裸指针相同",
+      "`shared_ptr` 常见实现是“对象指针 + 控制块指针”两个指针大小，计数增减是原子的",
+      "`shared_ptr` 是线程安全的，被管理对象的读写不需要额外同步",
+      "自定义删除器对 `unique_ptr` 是类型的一部分，对 `shared_ptr` 存在控制块里、不改变类型"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "`shared_ptr` 只有控制块的计数增减是原子的，被管理对象的读写仍需自己同步，所以“整体线程安全”那项错。`unique_ptr` 在默认删除器下零额外开销；`unique_ptr<FILE, FileCloser>` 与 `unique_ptr<FILE>` 是不同类型，而 `shared_ptr` 换删除器不改变类型。",
+    "src": "深读.md#unit-35"
+  },
+  {
+    "id": "d3-018",
+    "cat": "d3",
+    "unit": 35,
+    "unitTitle": "智能指针的种类与所有权",
+    "type": "code",
+    "diff": 3,
+    "q": "下面代码在作用域结束时打印几次 `~Node`？为什么？\n```cpp\nstruct Node {\n    std::shared_ptr<Node> next;\n    ~Node() { std::puts(\"~Node\"); }\n};\n\nint main() {\n    auto a = std::make_shared<Node>();\n    auto b = std::make_shared<Node>();\n    a->next = b;\n    b->next = a;\n}\n```",
+    "ref": "一次都不打印。`a` 与 `b` 互相持有 `shared_ptr`，作用域结束时外部指针销毁后两者的强引用计数仍各为 1，对象不析构，内存泄漏。修法：把其中一条边改成 `std::weak_ptr<Node>`（例如 `b->next`），打破循环后能恢复两次 `~Node`。",
+    "explain": "强引用计数归零才会销毁对象，循环引用让计数永远到不了 0。`weak_ptr` 不增加强引用计数，正是用来打断这种环的。原文的可观察验证打印 `use_count a=1 b=1`，且没有任何析构输出。",
+    "src": "深读.md#unit-35"
+  },
+  {
+    "id": "d3-019",
+    "cat": "d3",
+    "unit": 36,
+    "unitTitle": "全局变量的存放与头文件定义问题",
+    "type": "single",
+    "diff": 2,
+    "q": "头文件里写 `const int k = 5;` 并被多个 TU 包含，下列哪项正确？",
+    "options": [
+      "编译报 multiple definition，因为违反一重定义规则",
+      "能编译通过，因为命名空间作用域的 `const` 默认内部链接，但每个 TU 各有一份，取地址并不相等",
+      "能编译通过且所有 TU 共享同一份实体，取地址相等",
+      "必须加 `extern` 才能编译，否则是 UB"
+    ],
+    "answer": [1],
+    "explain": "命名空间作用域的 `const`/`constexpr` 默认内部链接，所以头文件里写不报错，但每个 TU 各有一份副本，构造有副作用时会执行多次。真正会报 multiple definition 的是非 `inline` 且外部链接的 `int g = 0;`。需要共享同一实体应写 `inline constexpr`。",
+    "src": "深读.md#unit-36"
+  },
+  {
+    "id": "d3-020",
+    "cat": "d3",
+    "unit": 36,
+    "unitTitle": "全局变量的存放与头文件定义问题",
+    "type": "fill",
+    "diff": 2,
+    "q": "在头文件中共享可变全局变量，C++17 之前的做法是在头文件用 ____ 声明，再在某个 `.cpp` 里定义一次。",
+    "answer": ["extern", "extern 声明", "extern关键字", "extern 关键字"],
+    "explain": "头文件会被多个 TU 包含，只能放声明；`extern int g;` 不分配存储，定义放在唯一的 `.cpp` 里，符合一重定义规则。C++17 起也可以直接在头文件写 `inline int g = 0;`，由链接器合并成一份。",
+    "src": "深读.md#unit-36"
+  },
+  {
+    "id": "d3-021",
+    "cat": "d3",
+    "unit": 37,
+    "unitTitle": "返回值优化 RVO 与 NRVO",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于 RVO/NRVO 与 C++17 的复制省略，下列哪些说法正确？",
+    "options": [
+      "C++17 强制省略“用纯右值初始化对象”和“返回纯右值”两种情形，拷贝构造被 `= delete` 也能编译",
+      "NRVO 返回具名局部变量在 C++17 仍是可选优化，关闭优化时可能出现一次移动或拷贝",
+      "`return std::move(x)` 返回将亡值，能触发强制省略并帮助编译器移动",
+      "省略发生时拷贝构造根本不调用，构造函数里的日志/计数不能当作必然发生"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "`return std::move(x)` 返回的是将亡值而非纯右值，既不满足强制省略条件，又阻止 NRVO，只剩一次移动，属于负优化。C++17 强制的只是纯右值那条路径，NRVO 两代都只是允许。省略是 as-if 的例外，编译器不看拷贝构造的副作用。",
+    "src": "深读.md#unit-37"
+  },
+  {
+    "id": "d3-022",
+    "cat": "d3",
+    "unit": 37,
+    "unitTitle": "返回值优化 RVO 与 NRVO",
+    "type": "code",
+    "diff": 3,
+    "q": "用 `-fno-elide-constructors` 编译下面代码，`makePrvalue`、`makeNamed`、`makeMoved` 分别会打印什么？\n```cpp\nstruct Widget {\n    int v;\n    explicit Widget(int x) : v(x) { std::cout << \"ctor \" << v << '\\n'; }\n    Widget(const Widget& o) : v(o.v) { std::cout << \"copy \" << v << '\\n'; }\n    Widget(Widget&& o) noexcept : v(o.v) { std::cout << \"move \" << v << '\\n'; }\n};\n\nWidget makePrvalue() { return Widget(1); }\nWidget makeNamed()   { Widget w(2); return w; }\nWidget makeMoved()   { Widget w(3); return std::move(w); }\n```",
+    "ref": "`makePrvalue` 仍只打印一行 `ctor 1`：C++17 对“返回纯右值”的省略是强制的，不受该开关影响。`makeNamed` 打印 `ctor 2` 后出现 `move 2`：NRVO 被关闭，具名局部变量被移动。`makeMoved` 始终是 `ctor 3` 加 `move 3`：`return std::move(w)` 返回将亡值，本来就阻止 NRVO。",
+    "explain": "该开关只能关掉“可选”的省略，关不掉 C++17 的强制部分，所以纯右值那条路径看不到拷贝。具名变量走 NRVO，关闭后按普通返回处理，能移动就移动。`std::move` 把表达式变成将亡值，反而比 `return w` 多一次移动。",
+    "src": "深读.md#unit-37"
+  },
+  {
+    "id": "d3-023",
+    "cat": "d3",
+    "unit": 38,
+    "unitTitle": "shared_from_this 的作用与限制",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `shared_from_this()`，下列哪些说法正确？",
+    "options": [
+      "只有对象已由 `shared_ptr` 管理、控制块已关联时才能调用；栈对象或 `unique_ptr` 管理的对象调用会抛 `bad_weak_ptr`",
+      "构造函数里调用不行，因为此时控制块还没和内部的 `weak_ptr` 关联；C++17 起抛 `bad_weak_ptr`",
+      "`shared_ptr<T>(this)` 与 `shared_from_this()` 等价，都能复用原控制块",
+      "析构函数里不能调用，此时强引用计数已归零，调用会抛异常"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "`shared_ptr<T>(this)` 会新建第二个控制块，与原控制块互不知情，最终双重释放；`shared_from_this()` 复用已有控制块，这正是它的价值。对象必须由 `shared_ptr` 管理，构造阶段和析构阶段都不满足条件，构造函数里调用 C++17 起稳定抛 `bad_weak_ptr`。",
+    "src": "深读.md#unit-38"
+  },
+  {
+    "id": "d3-024",
+    "cat": "d3",
+    "unit": 38,
+    "unitTitle": "shared_from_this 的作用与限制",
+    "type": "code",
+    "diff": 2,
+    "q": "下面代码打印的 `use_count` 是多少？如果把 `S` 改成栈对象再调用 `poke()` 会怎样？\n```cpp\nstruct S : std::enable_shared_from_this<S> {\n    void poke() { std::printf(\"use_count=%ld \", shared_from_this().use_count()); }\n};\n\nint main() {\n    auto s = std::make_shared<S>();\n    s->poke();\n}\n```",
+    "ref": "打印 `use_count=2`：`shared_from_this()` 把内部 `weak_ptr` 提升为指向同一控制块的 `shared_ptr`，与原 `s` 共享计数（外部 1 加临时 1）。若改成 `S stack; stack.poke();`，对象没有控制块，C++17 下抛出 `std::bad_weak_ptr`。",
+    "explain": "返回的是同一控制块上的计数，而不是新建控制块，所以是 2，这也是它相对 `shared_ptr<T>(this)` 的核心价值。控制块只在第一个 `shared_ptr` 接管对象时建立，栈对象和 `unique_ptr` 管理的对象都没有。",
+    "src": "深读.md#unit-38"
+  },
+  {
+    "id": "d3-025",
+    "cat": "d3",
+    "unit": 39,
+    "unitTitle": "内存对齐与对象布局",
+    "type": "single",
+    "diff": 3,
+    "q": "关于内存对齐，下列哪项正确？",
+    "options": [
+      "padding 是编译器在浪费内存，加 `#pragma pack(1)` 去掉它没有任何副作用",
+      "`alignas` 既能提高也能降低对齐，`alignas(1) int` 合法",
+      "`alignas` 只能提高对齐，低于类型的自然对齐是编译错误；降低对齐要靠 `#pragma pack`",
+      "`malloc` 分配的内存保证满足任意过对齐类型（如 `alignas(64)`）的要求"
+    ],
+    "answer": [2],
+    "explain": "`alignas` 只能提高对齐，`alignas(1) int` 是编译错误，降低对齐要用 pack。pack 去掉 padding 后成员可能未对齐，取地址或绑引用后访问是 UB，部分 ARM 上直接 fault，还会破坏 ABI。`malloc` 只保证 `max_align_t` 对齐，C++17 起 `new` 才支持过对齐类型。",
+    "src": "深读.md#unit-39"
+  },
+  {
+    "id": "d3-026",
+    "cat": "d3",
+    "unit": 39,
+    "unitTitle": "内存对齐与对象布局",
+    "type": "fill",
+    "diff": 3,
+    "q": "两个线程频繁写同一缓存行里的不同变量，会因缓存行互相失效而性能骤降，这种现象称为____。",
+    "answer": ["伪共享", "false sharing", "False Sharing", "false-sharing"],
+    "explain": "缓存行常见 64 字节，两个线程写同一行里的不同变量会让该行在两个核之间来回失效，吞吐可能只剩预期的一小部分。常用 `alignas(64)` 把热变量隔到不同缓存行来消除伪共享。",
+    "src": "深读.md#unit-39"
+  },
+  {
+    "id": "d3-027",
+    "cat": "d3",
+    "unit": 40,
+    "unitTitle": "RAII 与异常安全",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于 RAII 与异常安全，下列哪些说法正确？",
+    "options": [
+      "构造函数抛异常时，对象自身的析构不执行，但已构造完成的基类和成员会析构",
+      "析构函数默认 `noexcept`，在里面抛异常会调用 `std::terminate`",
+      "强异常安全只能靠在每个异常点写 `try/catch` 手动回滚",
+      "移动构造标记 `noexcept`，`std::vector` 扩容才会用它搬移，否则为保持强保证改用拷贝"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "强保证常用“先改副本、最后用不抛的 `swap` 提交”，把回滚变成结构性的，不必逐点写清理代码，所以“只能靠 try/catch”是错的。构造失败时资源若放在裸指针成员里就会泄漏，放在智能指针成员里则能自动回收。析构默认 `noexcept`，栈展开途中再抛异常同样直接终止进程。",
+    "src": "深读.md#unit-40"
+  },
+  {
+    "id": "d3-028",
+    "cat": "d3",
+    "unit": 40,
+    "unitTitle": "RAII 与异常安全",
+    "type": "code",
+    "diff": 3,
+    "q": "下面代码在异常路径上有什么问题？给出 RAII 改法。\n```cpp\nvoid f() {\n    m.lock();\n    doWork();      // 可能抛异常或提前 return\n    m.unlock();\n}\n```",
+    "ref": "问题：`doWork()` 抛异常或中途 `return` 都会跳过 `m.unlock()`，锁永远不释放，服务卡死。改法：\n```cpp\nvoid f() {\n    std::lock_guard<std::mutex> lock(m);   // 任何出口都会解锁\n    doWork();\n}\n```\n多把锁用 `std::scoped_lock`。判定要点：把 `unlock` 绑到析构上，让栈展开自动执行。",
+    "explain": "手写 `lock/unlock` 覆盖不了所有出口，异常让控制流可能从任意深处跳出。`lock_guard` 在析构里解锁，`return`、`break`、异常都走同一条回收路径。原文的可观察验证用 `try_lock` 返回 1 证明异常路径上锁确实被释放。",
+    "src": "深读.md#unit-40"
+  }
+]

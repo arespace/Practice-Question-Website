@@ -1,0 +1,400 @@
+[
+  {
+    "id": "d2-001",
+    "cat": "d2",
+    "unit": 14,
+    "unitTitle": "std::move 的作用与实现原理",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `std::move`、移动构造与容器的搬迁策略，下列哪些说法正确？",
+    "options": [
+      "`std::move(x)` 等价于 `static_cast<std::remove_reference_t<T>&&>(x)`，只改值类别，不搬内存",
+      "`std::vector` 扩容使用 `move_if_noexcept`：移动构造可能抛且类型可拷贝时退回拷贝",
+      "`std::forward<T>(x)` 必须显式写模板实参，按原始值类别转发",
+      "被 `std::move` 过的对象已经不能析构，也不能再赋值",
+      "对 `const` 对象调用 `std::move` 同样能选中移动构造"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`move` 只是到右值引用的无条件转换，真正搬资源的是移动构造/移动赋值；`vector` 扩容走 `move_if_noexcept`，移动可能抛且可拷贝时选拷贝以保住强异常安全；`forward` 需显式模板实参保留值类别。被移动的对象仍处于“有效但未指定”状态，可以析构、赋值，只是不能依赖它的值。对 `const` 对象 `std::move` 得到 `const T&&`，绑不到 `T&&` 移动构造，会静默退化成拷贝。",
+    "src": "深读.md#unit-14"
+  },
+  {
+    "id": "d2-002",
+    "cat": "d2",
+    "unit": 14,
+    "unitTitle": "std::move 的作用与实现原理",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的 `Buffer` 移动构造有两个问题：100 个对象逐个 `push_back` 进 `std::vector` 时全部走拷贝，还可能 double free。指出问题并写出修正后的移动构造。\n```cpp\nstruct Buffer {\n    int* data_ = nullptr;\n    std::size_t n_ = 0;\n    Buffer(Buffer&& other) : data_(other.data_), n_(other.n_) {}\n    ~Buffer() { delete[] data_; }\n};\n```",
+    "ref": "修正：\nBuffer(Buffer&& other) noexcept\n    : data_(other.data_), n_(other.n_) {\n    other.data_ = nullptr;\n    other.n_ = 0;\n}\n判定要点：\n1) 必须标 `noexcept`，否则 `std::vector` 扩容时 `move_if_noexcept` 判定“移动可能抛且可拷贝”，退回拷贝电路；\n2) 先接管指针再置空源对象，漏置空会导致两个对象析构时对同一块内存 `delete[]`，直接双释放崩溃；\n3) 可用 `static_assert(std::is_nothrow_move_constructible_v<Buffer>)` 把 `noexcept` 承诺锁在编译期。",
+    "explain": "移动构造没标 `noexcept` 时，`vector` 扩容宁可拷贝（`move_if_noexcept` 的选择条件），压测时才看到拷贝次数异常。构造函数体里只复制 `data_` 而不把 `other.data_` 置空，两个 `Buffer` 析构会重复释放同一块内存。正确顺序是先接管资源再置空源对象，并显式写 `noexcept`。",
+    "src": "深读.md#unit-14"
+  },
+  {
+    "id": "d2-003",
+    "cat": "d2",
+    "unit": 15,
+    "unitTitle": "static 的作用与工程场景",
+    "type": "single",
+    "diff": 1,
+    "q": "关于类中的 `static` 成员，下列哪个说法正确？",
+    "options": [
+      "静态数据成员属于类、所有对象共享一份，不计入 `sizeof(对象)`",
+      "静态成员函数隐含 `this`，因此可以直接访问非静态成员",
+      "函数内静态局部变量的线程安全保证后续的并发读写也安全",
+      "静态成员函数只要类里有虚函数就可以声明为 `virtual`"
+    ],
+    "answer": [0],
+    "explain": "静态数据成员属于类、所有对象共享一份，不计入 `sizeof(对象)`（原文示例中 `sizeof(Widget)` 为 1）。静态成员函数没有 `this`，不能是 `const`/`volatile`/`virtual`，访问非静态成员必须显式传对象或引用。magic statics 只保证首次初始化线程安全，之后的并发读写仍要自己加锁或原子化。",
+    "src": "深读.md#unit-15"
+  },
+  {
+    "id": "d2-004",
+    "cat": "d2",
+    "unit": 15,
+    "unitTitle": "static 的作用与工程场景",
+    "type": "fill",
+    "diff": 1,
+    "q": "文件作用域的 `static` 与匿名命名空间给出的都是 ____：只在本翻译单元（TU）可见，其他 TU 无法复用。",
+    "answer": ["内部链接", "内部", "internal linkage", "internal"],
+    "explain": "文件作用域的 `static` 把外部链接改成内部链接，与匿名命名空间等价，只在本 `.cpp` 可见，避免符号冲突，但也无法被其他 TU 复用或单测。注意它和类内 `static` 改的是不同维度：类内 `static` 改的是“归属”，文件级 `static` 改的是“链接”。",
+    "src": "深读.md#unit-15"
+  },
+  {
+    "id": "d2-005",
+    "cat": "d2",
+    "unit": 16,
+    "unitTitle": "const 的作用与理解",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `const` 成员函数、`mutable` 与 `constexpr`，下列哪些说法正确？",
+    "options": [
+      "`const` 成员函数里 `this` 的类型是 `const T*`",
+      "成员函数末尾的 `const` 参与重载，`const` 对象优先选 `const` 版本",
+      "`mutable` 成员可以在 `const` 成员函数里修改，适合缓存、命中计数",
+      "`const` 变量和 `constexpr` 一样，都必须在编译期初始化",
+      "为了少改接口，把业务字段都标成 `mutable` 是推荐做法"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`const` 成员函数的 `this` 是 `const T*`，末尾 `const` 参与重载且 `const` 对象优先选 `const` 版本；`mutable` 专给“逻辑只读、物理要写”的缓存/计数。`constexpr` 才要求编译期可求值并隐含 `const`，`const` 只保证运行期只读，初始化可以发生在运行期。把业务字段标 `mutable` 会破坏调用方对只读的预期，多线程下还产生数据竞争。",
+    "src": "深读.md#unit-16"
+  },
+  {
+    "id": "d2-006",
+    "cat": "d2",
+    "unit": 16,
+    "unitTitle": "const 的作用与理解",
+    "type": "code",
+    "diff": 2,
+    "q": "下面程序输出什么？并说明两次 `rc.value()` 分别调用了哪个重载。\n```cpp\nclass Cache {\npublic:\n    explicit Cache(std::string v) : value_(std::move(v)) {}\n    const std::string& value() const { ++reads_; return value_; }\n    std::string& value() { return value_; }\n    std::size_t reads() const { return reads_; }\nprivate:\n    std::string value_;\n    mutable std::size_t reads_ = 0;\n};\n\nint main() {\n    Cache c(\"abc\");\n    const Cache& rc = c;\n    rc.value();\n    c.value() = \"xyz\";\n    std::string shown = rc.value();\n    std::cout << rc.reads() << ' ' << shown << '\\n';\n}\n```",
+    "ref": "输出：`2 xyz`。判定要点：`rc` 是 `const Cache&`，两次 `rc.value()` 都选 `const` 重载（`this` 为 `const Cache*`），`++reads_` 因成员是 `mutable` 而合法，计数变成 2；`c.value() = \"xyz\"` 走非 `const` 重载所以可写；`shown` 在赋值之后读取，内容是 `xyz`。",
+    "explain": "`const` 对象只能调用 `const` 成员函数，所以 `rc.value()` 两次都命中 `const` 重载；这也是 `reads_` 要声明 `mutable` 的原因，否则在 `const` 函数里 `++reads_` 直接编译失败。`c.value()` 走非 `const` 重载返回可写引用，于是 `xyz` 被写进成员。最终计数 2、内容 xyz，说明重载决议按对象常量性选择。",
+    "src": "深读.md#unit-16"
+  },
+  {
+    "id": "d2-007",
+    "cat": "d2",
+    "unit": 17,
+    "unitTitle": "#define 与 const 的本质区别",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 `#define` 与 `const`/`constexpr` 的区别，下列哪个说法正确？",
+    "options": [
+      "宏定义给参数加满括号后，既解决优先级也解决重复求值",
+      "宏在预处理阶段做文本替换，没有类型、没有作用域，也不进符号表",
+      "`const` 常量一定占用内存，所以不能用它替代宏做常量",
+      "`constexpr` 是 C++17 引入，`inline constexpr` 是 C++11 引入"
+    ],
+    "answer": [1],
+    "explain": "宏在预处理阶段被纯文本替换，编译器拿到的是展开后的代码，所以没有类型、作用域，也不进符号表。加括号只解决优先级，`SQUARE(i++)` 仍会重复求值（原文列为 UB）。`const` 常量不一定占内存，被取地址或 ODR 使用时才有存储；`constexpr` 是 C++11 引入，`inline constexpr` 要到 C++17。",
+    "src": "深读.md#unit-17"
+  },
+  {
+    "id": "d2-008",
+    "cat": "d2",
+    "unit": 17,
+    "unitTitle": "#define 与 const 的本质区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面程序的 `a`、`b`、`c`、`i` 分别是多少？并说明为什么 `SQUARE(i++)` 不能写进实际代码。\n```cpp\n#define VAL 10 + 2\n#define SQUARE(x) ((x) * (x))\ninline constexpr int kVal = 10 + 2;\ninline constexpr int square(int x) { return x * x; }\n\nint a = VAL * VAL;\nint b = kVal * kVal;\nint i = 2;\nint c = square(i++);\n// int d = SQUARE(i++);\n```",
+    "ref": "结果：`a == 32`、`b == 144`、`c == 4`、`i == 3`。判定要点：\n1) `VAL * VAL` 展开成 `10 + 2 * 10 + 2`，按优先级先算乘法，得到 32；\n2) `kVal` 是带类型的常量，`kVal * kVal` 保持数学含义 144；\n3) `square(i++)` 是函数调用，实参只求值一次，因此 `c == 4`、`i == 3`；\n4) `SQUARE(i++)` 展开成 `(i++) * (i++)`，同一表达式里对 `i` 自增两次，属于 UB，且 `-Wall -Wextra` 也抓不到。",
+    "explain": "宏没有括号时会被运算符优先级改写，`VAL * VAL` 变成 `10 + 2 * 10 + 2` 得 32，而 `constexpr` 常量保持 144。函数式宏即使加满括号，也解决不了重复求值：`SQUARE(i++)` 展开后 `i` 自增两次，是 UB。`constexpr` 函数把实参求值一次，所以 `square(i++)` 得到 4 且 `i` 只加一次。",
+    "src": "深读.md#unit-17"
+  },
+  {
+    "id": "d2-009",
+    "cat": "d2",
+    "unit": 18,
+    "unitTitle": "std::string_view 与 const char*",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `std::string_view` 与 `const char*`，下列哪些说法正确？",
+    "options": [
+      "`string_view` 内部是 `const char*` 加长度，`size()` 与 `substr()` 都是 O(1) 且不分配内存",
+      "`string_view` 不拥有数据，底层 `std::string` 销毁、扩容或修改后视图立即失效",
+      "`const char*` 取长度要 `strlen` 扫描到 `'\\0'`，是 O(n)",
+      "`string_view` 保证以 `'\\0'` 结尾，`sv.data()` 可以直接传给 `printf(\"%s\")`",
+      "`string_view` 会拷贝一份底层字符，所以传参是安全的"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`string_view` 只记录指针和长度，拷贝视图是 O(1)，`substr()` 只生成新视图、不复制字符，同样 O(1)。它不拥有数据、不保证 `'\\0'` 结尾，底层缓冲区销毁或修改后视图立即悬垂；`const char*` 没有长度信息，`strlen` 是 O(n)，取子串通常要分配并拷贝。把 `sv.data()` 当 C 字符串用可能越界读。",
+    "src": "深读.md#unit-18"
+  },
+  {
+    "id": "d2-010",
+    "cat": "d2",
+    "unit": 18,
+    "unitTitle": "std::string_view 与 const char*",
+    "type": "fill",
+    "diff": 1,
+    "q": "`std::string_view` 内部是一个 `const char*` 加一个 ____，因此 `size()` 是 O(1)，拷贝一个视图也是 O(1)。",
+    "answer": ["长度", "length", "长度信息", "长度值"],
+    "explain": "视图只记“数据在哪、有多长”，所以长度是现成的，不需要像 `const char*` 那样 `strlen` 扫到 `'\\0'`。也正因为它只是指针加长度、不拥有缓冲区，`substr()` 只调整这两个字段就能返回新视图，复杂度 O(1)。",
+    "src": "深读.md#unit-18"
+  },
+  {
+    "id": "d2-011",
+    "cat": "d2",
+    "unit": 19,
+    "unitTitle": "extern 与 extern \"C\"",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `extern` 与 `extern \"C\"`，下列哪些说法正确？",
+    "options": [
+      "`extern int x;` 只是声明，不分配存储；定义（不带 `extern` 或带初始化）才分配",
+      "`extern \"C\"` 关闭 C++ 名字修饰，按 C 符号名导出/查找，但不改变函数体语义",
+      "`extern \"C\"` 块里不能放重载函数和模板",
+      "`extern \"C\"` 会改变函数的调用约定，所以它和 ABI 是一回事",
+      "头文件里直接写 `int g;` 被多个 `.cpp` 包含不会出问题"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`extern` 声明不分配存储，定义（不带 `extern` 或带初始化）才分配。`extern \"C\"` 只指定语言链接：关闭名字修饰、按 C 符号名查找，函数体语义不变，块内不能重载、不能用模板，因为 C 符号名不区分参数。标准只规定语言链接，具体调用约定由 ABI 决定；头文件里直接写 `int g;` 被多个 TU 包含会 multiple definition。",
+    "src": "深读.md#unit-19"
+  },
+  {
+    "id": "d2-012",
+    "cat": "d2",
+    "unit": 19,
+    "unitTitle": "extern 与 extern \"C\"",
+    "type": "code",
+    "diff": 2,
+    "q": "下面代码编译通过、链接失败，报 `undefined reference to _Z6c_funci`。说明 `_Z6c_funci` 的来历，并给出能被 C 与 C++ 同时包含的头文件写法。\n```cpp\n// c_lib.h —— 纯 C 库，已编译成 c_lib.o\nint c_func(int);\n\n// main.cpp\n#include \"c_lib.h\"\nint main() { return c_func(1); }\n```",
+    "ref": "`_Z6c_funci` 是 C++ 名字修饰的结果：`_Z` 前缀 + 名字长度 `6` + `c_func` + 参数类型 `i`（int）；而 C 目标文件里的符号就是 `c_func`，所以按 C++ 符号名找不到。头文件正确写法：\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint c_func(int);\n#ifdef __cplusplus\n}\n#endif\n判定要点：`extern \"C\"` 关闭名字修饰、按 C 符号名查找；给 C 看的头文件必须用 `#ifdef __cplusplus` 包住，否则 C 编译器看到 `extern \"C\"` 直接语法错误。",
+    "explain": "C++ 支持重载，所以函数名在目标文件里要编码参数信息，`c_func(int)` 变成 `_Z6c_funci`；C 的符号名就是函数名本身。C++ 侧不加 `extern \"C\"` 就会按修饰后的名字去找，链接器自然找不到。修法是让声明带 C 语言链接，并用 `#ifdef __cplusplus` 保护，保证 C 编译器也能包含同一份头文件。",
+    "src": "深读.md#unit-19"
+  },
+  {
+    "id": "d2-013",
+    "cat": "d2",
+    "unit": 20,
+    "unitTitle": "explicit 的作用",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 `explicit`，下列哪个说法正确？",
+    "options": [
+      "`explicit` 会同时禁止 `A a{1};` 和 `static_cast<A>(1)`",
+      "`explicit operator bool` 之后连 `if (h)` 也不能写了",
+      "`explicit` 只挡隐式转换与复制初始化，直接初始化和 `static_cast` 仍然可用",
+      "只有单参构造函数才需要 `explicit`，其余参数带默认值的多参构造不会发生隐式转换"
+    ],
+    "answer": [2],
+    "explain": "`explicit` 挡的是隐式转换和复制初始化（`A a = 1;`、`f(1)`），直接初始化 `A a(1)`、`A a{1}` 与 `static_cast<A>(1)` 仍然可用。`explicit operator bool` 只允许 `if`、`while`、`!`、`&&`、`||` 这类语境转换，所以 `if (h)` 合法而 `bool b = h;` 非法。其余参数都有默认值的多参构造仍可能被单参调用，同样要防隐式转换。",
+    "src": "深读.md#unit-20"
+  },
+  {
+    "id": "d2-014",
+    "cat": "d2",
+    "unit": 20,
+    "unitTitle": "explicit 的作用",
+    "type": "fill",
+    "diff": 2,
+    "q": "`explicit operator bool` 只允许 `if`、`while`、`!`、`&&`、`||` 这类 ____ 转换，而 `bool b = h;` 属于复制初始化，会被拒绝。",
+    "answer": ["语境", "语境转换", "contextual", "contextual conversion"],
+    "explain": "`if` 的条件位置属于语境转换，标准明确允许 `explicit` 转换函数参与，所以 `if (h)` 合法；复制初始化不走语境转换，`bool b = h;` 就编译失败。这正是句柄类既能写 `if (h)` 又不会悄悄变成整数的原因。如果为通过编译去掉 `explicit`，`int n = obj + 1;` 也会变得合法，类型彻底失控。",
+    "src": "深读.md#unit-20"
+  },
+  {
+    "id": "d2-015",
+    "cat": "d2",
+    "unit": 21,
+    "unitTitle": "final 关键字",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `final`，下列哪些说法正确？",
+    "options": [
+      "`class X final` 禁止从 `X` 派生；`virtual void f() final` 禁止派生类覆盖 `f`",
+      "`final` 是上下文关键字，只在类头或虚函数声明位置有特殊含义",
+      "编译器知道虚函数不会再被覆盖后可以做去虚化，但收益依实现而定",
+      "`final` 可以替代虚析构，标了 `final` 后通过基类指针 `delete` 一定安全",
+      "`final` 可以加在非虚函数上，用来禁止派生类写同名函数"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`final` 在类头禁止继承、在虚函数声明后禁止覆盖，违规在编译期报错；它是上下文关键字而非保留字，老代码里叫 `final` 的变量名不受影响；函数确定不再被覆盖时编译器可能去虚化，但收益取决于编译器和上下文。`final` 不改变析构的虚性，基类析构非虚时通过基类指针 `delete` 仍是 UB；非虚函数加 `final` 直接编译错误。",
+    "src": "深读.md#unit-21"
+  },
+  {
+    "id": "d2-016",
+    "cat": "d2",
+    "unit": 21,
+    "unitTitle": "final 关键字",
+    "type": "fill",
+    "diff": 1,
+    "q": "在中间层既要表明“这是覆盖”又要禁止后续再覆盖，`tick` 的声明应写成 `void tick() ____;`。",
+    "answer": ["override final", "final override"],
+    "explain": "`override` 要求“我确实覆盖了基类虚函数”，`final` 要求“后面不许再覆盖”，两者可以一起写在虚函数声明末尾，原文写法是 `override final`（写成 `final override` 等价）。只写 `final` 会失去覆盖检查，只写 `override` 则派生类仍能继续覆盖。",
+    "src": "深读.md#unit-21"
+  },
+  {
+    "id": "d2-017",
+    "cat": "d2",
+    "unit": 22,
+    "unitTitle": "四种类型转换",
+    "type": "single",
+    "diff": 2,
+    "q": "关于四种类型转换，下列哪个说法正确？",
+    "options": [
+      "`static_cast` 向下转型会做运行期检查，类型猜错时抛 `std::bad_cast`",
+      "`dynamic_cast` 的引用版本失败时返回 `nullptr`",
+      "`const_cast` 只增删 `const`/`volatile`，对本身就是 `const` 的对象写入是 UB",
+      "`reinterpret_cast` 可以去掉 `const`，等价于 `const_cast` 加 `static_cast`"
+    ],
+    "answer": [2],
+    "explain": "`static_cast` 只在编译期检查继承关系，不检查动态类型，猜错就是 UB；`dynamic_cast` 指针版本失败返回 `nullptr`，引用版本没有空引用，失败抛 `std::bad_cast`。`const_cast` 只动 cv，对真正常量对象写入是 UB；`reinterpret_cast` 不能去 `const`，需要时只能先 `const_cast` 再 `reinterpret_cast`。",
+    "src": "深读.md#unit-22"
+  },
+  {
+    "id": "d2-018",
+    "cat": "d2",
+    "unit": 22,
+    "unitTitle": "四种类型转换",
+    "type": "code",
+    "diff": 3,
+    "q": "下面程序输出什么？若改用 `-fno-rtti` 编译，哪里会报错？\n```cpp\nstruct Base { virtual ~Base() = default; };\nstruct A : Base {};\nstruct B : Base {};\n\nint main() {\n    A a;\n    Base& r = a;\n    if (auto* p = dynamic_cast<B*>(&r)) {\n        std::cout << \"B\\n\";\n    } else {\n        std::cout << \"not B\\n\";\n    }\n    try {\n        (void)dynamic_cast<B&>(r);\n    } catch (const std::bad_cast&) {\n        std::cout << \"bad_cast\\n\";\n    }\n}\n```",
+    "ref": "输出两行：`not B`、`bad_cast`。`&r` 的动态类型是 `A`，指针版 `dynamic_cast<B*>` 失败返回 `nullptr`，所以走 else 分支；引用版 `dynamic_cast<B&>` 失败没有空引用可返回，抛 `std::bad_cast`，被 catch 捕获。`-fno-rtti` 下两处 `dynamic_cast` 直接编译报错，因为它依赖运行期类型信息（虚表里的 RTTI）。",
+    "explain": "`dynamic_cast` 要求源类型是多态类型（至少一个虚函数），本例靠 `virtual ~Base()` 提供 RTTI。指针版本失败返回 `nullptr`，引用版本失败只能抛 `std::bad_cast`，所以同一转换在两种写法下表现完全不同。若对非多态类型使用，或关闭 RTTI，会在编译期直接失败。",
+    "src": "深读.md#unit-22"
+  },
+  {
+    "id": "d2-019",
+    "cat": "d2",
+    "unit": 23,
+    "unitTitle": "this 指针",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `this`，下列哪些说法正确？",
+    "options": [
+      "`this` 是指向当前对象的指针右值，不能重新赋值，解引用才得到对象",
+      "`const` 成员函数里 `this` 的类型是 `const T*`，因此返回 `*this` 为 `T&` 会编译失败",
+      "静态成员函数没有 `this`，想操作对象必须把对象、引用或指针显式传进来",
+      "构造函数里调用虚函数会派发到最终派生类",
+      "任何对象都可以 `delete this`，只要之后不再访问成员"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`this` 是非静态成员函数隐含的第一个参数，本身是指针右值、不能赋值，解引用才得到对象。它的类型随 `const` 限定变化：普通函数是 `T*`，`const` 函数是 `const T*`，所以 `const` 函数里返回 `T&` 会失败，应返回 `const T&`。静态函数不与对象绑定、没有 `this`；构造/析构期间调用虚函数只派发到当前构造/析构的类；`delete this` 只对 `new` 出来的对象成立。",
+    "src": "深读.md#unit-23"
+  },
+  {
+    "id": "d2-020",
+    "cat": "d2",
+    "unit": 23,
+    "unitTitle": "this 指针",
+    "type": "code",
+    "diff": 2,
+    "q": "下面链式调用输出什么？如果把 `add` 的返回类型从 `Builder&` 改成 `Builder`，`b` 自己的 `sum_` 最后是多少？\n```cpp\nclass Builder {\npublic:\n    Builder& add(int v) { sum_ += v; return *this; }\n    Builder& setSum(int sum) { this->sum_ = sum; return *this; }\n    const Builder& dump() const { std::cout << sum_ << '\\n'; return *this; }\nprivate:\n    int sum_ = 0;\n};\n\nBuilder b;\nb.add(1).add(2).setSum(10).add(5).dump();\n```",
+    "ref": "输出 `15`（1+2 后 `setSum(10)`，再 +5）。判定要点：`add`/`setSum` 返回 `*this` 的引用，整条链作用在同一个对象 `b` 上，所以修改都累积下来。若把 `add` 返回类型改成 `Builder`（按值），每次调用都会拷贝一份，修改只落在临时对象上，`b.sum_` 保持 `0`，链式结果全丢。",
+    "explain": "`return *this;` 返回的是当前对象本身，返回类型写成 `Builder&` 才不拷贝，所以四步调用都作用于 `b`。这也是要区分 `T&` 与 `T` 的原因：按值返回会拷贝，修改作用在临时对象上。`const` 版 `dump` 里的 `this` 是 `const Builder*`，返回 `*this` 只能绑定到 `const Builder&`。",
+    "src": "深读.md#unit-23"
+  },
+  {
+    "id": "d2-021",
+    "cat": "d2",
+    "unit": 24,
+    "unitTitle": "#include <a.h> 与 #include \"a.h\"",
+    "type": "single",
+    "diff": 1,
+    "q": "关于 `#include <a.h>` 与 `#include \"a.h\"`，下列哪个说法正确？",
+    "options": [
+      "双引号形式只搜索当前目录，找不到就直接编译失败",
+      "尖括号形式会先搜索包含它的源文件所在目录",
+      "引号形式里的相对路径相对于包含它的源文件，而不是编译时的工作目录",
+      "`-I` 只对尖括号形式生效，对双引号形式无效"
+    ],
+    "answer": [2],
+    "explain": "双引号先搜当前源文件所在目录（实现定义），找不到会回退到尖括号那套搜索路径，不会直接失败；尖括号不搜索当前源文件目录，只在系统目录和 `-I` 目录里找。引号里的相对路径相对于“包含它的那个文件”，不是编译时的工作目录。`-I` 对两种形式都生效，通常插在系统目录之前。",
+    "src": "深读.md#unit-24"
+  },
+  {
+    "id": "d2-022",
+    "cat": "d2",
+    "unit": 24,
+    "unitTitle": "#include <a.h> 与 #include \"a.h\"",
+    "type": "fill",
+    "diff": 1,
+    "q": "把第三方头文件目录标记为“系统头”（默认抑制其警告、通常排在 `-I` 之后）的 g++ 选项是 ____。",
+    "answer": ["-isystem", "isystem"],
+    "explain": "`-I` 与 `-isystem` 都用于添加搜索目录，但 `-isystem` 把该目录标记成系统头：默认抑制警告，且一般排在 `-I` 之后，适合第三方库。用 `-I` 引入第三方库会让其大量警告淹没自己的告警；配合 `g++ -H` 可以看到每个 include 实际命中的路径。",
+    "src": "深读.md#unit-24"
+  },
+  {
+    "id": "d2-023",
+    "cat": "d2",
+    "unit": 25,
+    "unitTitle": "命名空间",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于命名空间与 `using`，下列哪些说法正确？",
+    "options": [
+      "`using` 声明只引入一个名字并参与重载；`using` 指令让整个命名空间的名称可见",
+      "匿名命名空间内的名字具有内部链接，等价于文件级 `static`，每个 TU 一份",
+      "`inline namespace` 的成员可被外层命名空间直接访问，常用于版本化",
+      "头文件里写 `using namespace std;` 是推荐做法，可以少写前缀",
+      "`namespace fs = std::filesystem;` 这样的别名会改变实体的归属"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`using` 声明只引入单个名字、影响面可控且参与重载；`using` 指令把整个命名空间的名字倒进当前作用域，容易产生二义性。匿名命名空间给内部链接，等价于文件级 `static`，每个 TU 各一份。`inline namespace` 让外层直接访问当前版本成员，旧版本仍可用限定名访问。头文件里写 `using namespace` 会污染所有包含者；命名空间别名只影响书写，不改变实体归属。",
+    "src": "深读.md#unit-25"
+  },
+  {
+    "id": "d2-024",
+    "cat": "d2",
+    "unit": 25,
+    "unitTitle": "命名空间",
+    "type": "code",
+    "diff": 3,
+    "q": "下面程序输出什么？如果把 `inline` 从 `v2` 上去掉，哪一行会编译失败？\n```cpp\nnamespace app::core {\ninline namespace v2 { void log() { std::cout << \"v2\\n\"; } }\nnamespace v1 { void log() { std::cout << \"v1\\n\"; } }\n}\nusing app::core::v1::log;\n\nint main() {\n    app::core::log();\n    app::core::v1::log();\n    log();\n}\n```",
+    "ref": "输出三行：`v2`、`v1`、`v1`。判定要点：`app::core::log()` 命中 `inline namespace v2` 的成员，因为内联命名空间的成员可被外层直接访问；`app::core::v1::log()` 用完整限定名命中旧版；`log()` 命中 `using app::core::v1::log;` 这一声明引入的名字。去掉 `inline` 后，`app::core::log()` 这一行编译失败——外层默认入口正是 `inline` 给的。",
+    "explain": "`inline namespace` 的成员可被外层名称查找直接看到，所以 `app::core::log()` 落到 v2，这就是它的版本化用法：升级默认版本不影响既有调用点。`using` 声明只引入指定的那一个名字，因此不带限定的 `log()` 走 v1。去掉 `inline` 后外层不再有 `log` 这个名字，第一行报错。",
+    "src": "深读.md#unit-25"
+  },
+  {
+    "id": "d2-025",
+    "cat": "d2",
+    "unit": 26,
+    "unitTitle": "auto 与 decltype",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于 `auto` 与 `decltype`，下列哪些说法正确？",
+    "options": [
+      "`auto x = expr;` 按模板实参推导，丢弃引用和顶层 `const`/`volatile`",
+      "`decltype(名字)` 返回声明类型（含引用与 `const`），而 `decltype((表达式))` 按值类别，左值得 `T&`",
+      "`decltype(auto)` 用 `decltype` 规则推导返回值，可以返回引用",
+      "`auto` 作为返回类型也能返回引用，只要函数体 `return` 的是引用",
+      "`auto&&` 永远都是右值引用"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`auto` 按模板实参推导，剥掉引用和顶层 `const`/`volatile`，所以 `auto s = getString();` 会拷贝。`decltype(名字)` 给声明类型，`decltype((x))` 按表达式值类别推导，左值 `x` 多一层 `T&`。`decltype(auto)` 才能按 `decltype` 规则返回引用；`auto` 返回类型按值推导，返回引用会退化成拷贝；`auto&&` 在推导语境中是转发引用，左值初始化时折叠为左值引用。",
+    "src": "深读.md#unit-26"
+  },
+  {
+    "id": "d2-026",
+    "cat": "d2",
+    "unit": 26,
+    "unitTitle": "auto 与 decltype",
+    "type": "code",
+    "diff": 3,
+    "q": "下列各变量的类型分别是什么（`ref()` 的返回类型也算）？\n```cpp\nconst int ci = 5;\nint g = 0;\n\nauto a = ci;\nauto& b = ci;\ndecltype(ci) c = 1;\ndecltype((ci)) d = c;\ndecltype(auto) ref() { return (g); }\n```",
+    "ref": "`a` 是 `int`（`auto` 丢弃顶层 `const`）；`b` 是 `const int&`（`auto&` 保留 `const`）；`c` 是 `const int`（`decltype(名字)` 取声明类型）；`d` 是 `const int&`（`decltype((ci))` 按左值表达式推导，多一层引用）；`ref()` 返回 `int&`（`decltype(auto)` 按 `decltype` 规则，`(g)` 是左值）。可用 `static_assert(std::is_same_v<decltype(a), int>)` 等逐条锁定。",
+    "explain": "`auto` 走模板推导，丢弃引用和顶层 `const`，所以 `auto a = ci` 得到 `int`，想要只读绑定必须写 `auto&` 或 `const auto&`。`decltype` 对不加括号的名字返回声明类型，加括号后按表达式值类别推导，左值 `ci` 得到 `const int&`。要返回引用就得用 `decltype(auto)` 或尾置 `decltype`，`auto` 返回值会静默拷贝。",
+    "src": "深读.md#unit-26"
+  }
+]

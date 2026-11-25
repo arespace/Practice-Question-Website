@@ -1,0 +1,145 @@
+[
+  {
+    "id": "d2-x14",
+    "cat": "d2",
+    "unit": 14,
+    "unitTitle": "std::move 的作用与实现原理",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的 `S` 同时提供了拷贝构造与 `noexcept` 移动构造，`main` 里两次用 `std::move` 初始化新对象。请给出程序输出（每行对应一次构造），并说明第二次为什么没有走移动构造。\n```cpp\n#include <iostream>\n#include <string>\n#include <utility>\n\nstruct S {\n    std::string s = \"hello\";\n    S() = default;\n    S(const S& o) : s(o.s) { std::cout << \"copy\\n\"; }\n    S(S&& o) noexcept : s(std::move(o.s)) { std::cout << \"move\\n\"; }\n};\n\nint main() {\n    S a;\n    const S b;\n    S c = std::move(a);\n    S d = std::move(b);\n}\n```",
+    "ref": "输出两行：`move`、`copy`。`S c = std::move(a);` 中 `std::move(a)` 是 `S&&` 右值，精确匹配 `S(S&&) noexcept`，打印 `move`。`b` 的类型是 `const S`，`std::move(b)` 得到 `const S&&`，它不能绑定到 `S&&`，只能绑定到 `const S&`，于是选中拷贝构造，打印 `copy`。判定要点：`std::move` 只做一次值类别转换（等价于 `static_cast<std::remove_reference_t<T>&&>(x)`），对 `const` 对象得到的是 `const T&&`，这就是最典型的“静默退化成拷贝”；另外这两次初始化都不是复制消除，因为初始化式是 xvalue 而不是纯右值。",
+    "explain": "`std::move` 不搬内存，只把左值转成右值引用；真正决定走哪个构造函数的是重载决议。`const S` 经 `std::move` 后是 `const S&&`，而 `S(S&&)` 需要非 const 右值引用，无法绑定，编译器只能退回 `const S&` 的拷贝构造，且不报任何警告。易错点是把 `std::move` 当成“一定移动”，于是在容器里存 `const` 元素或在 `const` 成员上搬移时性能悄悄退化。判分要点：输出顺序必须是 move 在前、copy 在后，并且明确指出 `const T&&` 绑不到 `T&&`。"
+  },
+  {
+    "id": "d2-x15",
+    "cat": "d2",
+    "unit": 15,
+    "unitTitle": "static 的作用与工程场景",
+    "type": "code",
+    "diff": 2,
+    "q": "`Widget` 用静态成员统计存活对象数：构造与拷贝构造加一、析构减一。请给出程序完整输出（三个值），并解释 `sizeof(Widget)` 为什么是这个数。\n```cpp\n#include <cstddef>\n#include <iostream>\n\nstruct Widget {\n    Widget() { ++alive_; }\n    Widget(const Widget&) { ++alive_; }\n    ~Widget() { --alive_; }\n    static int alive() { return alive_; }\nprivate:\n    static int alive_;\n};\nint Widget::alive_ = 0;\n\nint main() {\n    Widget a;\n    {\n        Widget b = a;\n        std::cout << Widget::alive() << ' ';\n    }\n    std::cout << Widget::alive() << ' ' << sizeof(Widget) << '\\n';\n}\n```",
+    "ref": "输出 `2 1 1`。内层作用域里：`Widget a;` 构造 +1，`Widget b = a;` 走拷贝构造 +1，此时 `alive()` 为 2，打印 `2`。离开内层作用域时 `b` 析构 −1，剩 1，于是第二次打印 `1`。`sizeof(Widget)` 为 `1`：静态数据成员属于类、所有对象共享一份，不占对象空间；而这个类没有任何非静态成员，空类对象也必须能区分地址，标准要求大小至少为 1。判定要点：静态成员函数 `alive()` 没有 `this`，只能用类名调用；两个对象共享同一份 `alive_`，所以计数是类级别的。",
+    "explain": "类内 `static` 改的是归属：`alive_` 只有一份存储，所有 `Widget` 对象共用，构造、拷贝构造、析构里的 `++/--` 都作用在同一块内存上；它不计入 `sizeof`，所以没有非静态成员时对象大小只剩空类的 1 字节。静态成员函数不属于任何对象，没有 `this`，只能访问静态成员，调用要写 `Widget::alive()`。易错点是以为每个对象各有一份计数，或以为静态成员会撑大对象；若把 `alive_` 写成普通成员，输出会完全不同。判分要求：三个数字顺序正确，并能说明“共享一份 + 不占对象空间”。"
+  },
+  {
+    "id": "d2-x16",
+    "cat": "d2",
+    "unit": 16,
+    "unitTitle": "const 的作用与理解",
+    "type": "code",
+    "diff": 2,
+    "q": "`Counter::value()` 漏写了函数尾部的 `const`，而 `sum` 接收两个 `const Counter&` 并在其中调用它。请说明编译结果、报错的确切原因，并给出改动最小的修复。\n```cpp\n#include <iostream>\n\nclass Counter {\npublic:\n    explicit Counter(int v) : v_(v) {}\n    int value() { return v_; }\nprivate:\n    int v_;\n};\n\nint sum(const Counter& a, const Counter& b) {\n    return a.value() + b.value();\n}\n\nint main() {\n    Counter x(1), y(2);\n    std::cout << sum(x, y) << '\\n';\n}\n```",
+    "ref": "编译失败，错误落在 `a.value()` 与 `b.value()` 两处，形如 “passing 'const Counter' as 'this' argument discards qualifiers”。原因：`const Counter&` 上只能调用 `const` 成员函数，而非 `const` 成员函数的隐含 `this` 是 `Counter*`，把 `const Counter*` 传给 `Counter*` 会丢掉 `const` 限定。最小修复是给 `value` 加尾部 `const`：`int value() const { return v_; }`。修复后编译通过，输出 `3`。判定要点：不要用 `const_cast<Counter&>(a).value()` 绕过（只是把编译期错误推到运行期），也不要把 `sum` 的参数改成 `Counter&`（削弱接口契约）。",
+    "explain": "`const` 成员函数把 `this` 变成 `const T*`，因此只有它能被 `const` 对象或 `const T&` 调用；漏标 `const` 的只读接口在常量对象上直接编译失败，这是本单元最典型的问题。修法是在声明与定义处都加尾部 `const`（类内定义写一处即可），返回值本身不必加顶层 `const`。易错点：把错误归因于返回类型而不是 `this` 的常量性，或者用 `const_cast` 去掉调用方的 `const`。判分要点：指出错误是“丢弃 const 限定”，并给出加 `const` 而非 `const_cast` 的修复。"
+  },
+  {
+    "id": "d2-x17",
+    "cat": "d2",
+    "unit": 17,
+    "unitTitle": "#define 与 const 的本质区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面想用常量控制编译期分支：一处用 `inline constexpr` 变量，一处用宏。请给出输出，并解释为什么两个 `#if` 的判断结果不同。\n```cpp\n#include <iostream>\n\ninline constexpr int kLevel = 2;\n\n#if kLevel >= 2\nconstexpr const char* kModeA = \"verbose\";\n#else\nconstexpr const char* kModeA = \"quiet\";\n#endif\n\n#define LEVEL 2\n\n#if LEVEL >= 2\nconstexpr const char* kModeB = \"verbose\";\n#else\nconstexpr const char* kModeB = \"quiet\";\n#endif\n\nint main() {\n    std::cout << kModeA << ' ' << kModeB << '\\n';\n}\n```",
+    "ref": "输出 `quiet verbose`。`#if` 由预处理器求值，此时编译器还没开始工作，`kLevel` 这个 `constexpr` 变量对预处理器完全不可见；标准规定条件编译表达式中残留的标识符一律按 `0` 替换，于是 `kLevel >= 2` 变成 `0 >= 2`，为假，选中 `quiet`。`LEVEL` 是宏，预处理阶段已被替换成 `2`，`2 >= 2` 为真，选中 `verbose`。判定要点：`kLevel` 在预处理阶段不是“报错”而是“取 0”，加 `-Wundef` 也只给警告；`constexpr` 再强也进不了预处理器。",
+    "explain": "宏和 `constexpr` 处在完全不同的阶段：预处理在编译之前完成，只认识宏和字面量，不认识变量、`constexpr`、`sizeof` 这类 C++ 实体；`#if` 中未定义的标识符一律当作 0。所以用 `constexpr` 变量控制条件编译永远走 0 分支，属于“看起来对、静默走错”的坑。反过来，`#if` 里能用的东西也不能当运行期常量用。判分要点：输出顺序（quiet 在前）与“未定义标识符按 0 处理”的原因都要答对；正解是条件编译用宏，常量表达式（数组维度、模板实参）才用 `constexpr`。"
+  },
+  {
+    "id": "d2-x18",
+    "cat": "d2",
+    "unit": 18,
+    "unitTitle": "std::string_view 与 const char*",
+    "type": "code",
+    "diff": 3,
+    "q": "实现按分隔符切分的 `split`：返回一组只读视图，要求整段流程不拷贝任何字符，`\"a,,b\"` 切成 3 段且空字段保留。请补全函数体，并说明调用方必须保证什么。\n```cpp\n#include <string_view>\n#include <vector>\n\n// 要求：\"a,,b\" 切成 3 段（空字段保留），全程不拷贝字符\nstd::vector<std::string_view> split(std::string_view text, char sep) {\n    return {};   // TODO：待实现\n}\n\nint main() {\n    auto parts = split(\"a,,b\", ',');\n    return parts.size() == 3 ? 0 : 1;\n}\n```",
+    "ref": "参考实现：\n```cpp\nstd::vector<std::string_view> split(std::string_view text, char sep) {\n    std::vector<std::string_view> out;\n    std::size_t pos = 0;\n    for (;;) {\n        const std::size_t next = text.find(sep, pos);\n        if (next == std::string_view::npos) {\n            out.push_back(text.substr(pos));\n            break;\n        }\n        out.push_back(text.substr(pos, next - pos));\n        pos = next + 1;\n    }\n    return out;\n}\n```\n判定要点：① `find` 定位分隔符、`substr` 只调整“指针 + 长度”，不分配也不拷贝字符，整体 O(n)；② 遇到 `npos` 时把剩余部分 `substr(pos)` 作为最后一段，`pos == size()` 时自然得到空视图；③ 连续分隔符（`a,,b`）会产出空 `string_view`，空字段因此保留；④ 视图不拥有数据，调用方必须保证被切分的缓冲区比返回的 `vector` 活得更久，不能把临时 `std::string` 传进来。",
+    "explain": "`string_view` 内部是 `const char*` 加长度，所以 `substr` 是 O(1)，切分天生零拷贝；代价是返回的视图指向原缓冲区，原数据销毁、扩容或修改后全部悬垂。易错点有三个：把 `npos` 当位置直接 `substr`、漏掉最后一段、以及把临时 `std::string` 传进来导致返回即悬垂。判分要点：能给出 O(n) 循环、空字段保留，并明确写出调用方的生命周期责任；如果实现里出现了 `std::string` 临时对象，说明没有达到“零拷贝”要求。"
+  },
+  {
+    "id": "d2-x19",
+    "cat": "d2",
+    "unit": 19,
+    "unitTitle": "extern 与 extern \"C\"",
+    "type": "code",
+    "diff": 2,
+    "q": "`config.h` 里直接写了 `int g_count = 0;`，三个 `.cpp` 都包含它。请说明构建结果、报错文本的含义，并给出两种正确写法（C++17 之前与之后各一种）。\n```cpp\n// config.h\nint g_count = 0;          // 被多个 TU 包含\nvoid bump();\nint get();\n\n// a.cpp\n#include \"config.h\"\nvoid bump() { ++g_count; }\n\n// b.cpp\n#include \"config.h\"\nint get() { return g_count; }\n\n// main.cpp\n#include \"config.h\"\nint main() { bump(); return get(); }\n```",
+    "ref": "每个 `.cpp` 包含 `config.h` 后都各自定义了一份 `g_count`，链接期报 `multiple definition of 'g_count'`（GCC 还会指出首次定义的位置）。原因：命名空间作用域的 `int g_count = 0;` 是定义，一个实体在整个程序里只能有一次定义（ODR），而文件作用域变量默认外部链接，三个 TU 的同名符号撞在一起。两种修法：① 传统写法——头文件只写 `extern int g_count;`，在且仅在一个 `.cpp` 里写 `int g_count = 0;`；② C++17 起——头文件写 `inline int g_count = 0;`，`inline` 变量允许多个 TU 出现同一份定义，链接器只保留一个。判定要点：这是链接错误而不是编译错误，并且要区分“声明（`extern`，不分配存储）”与“定义”。",
+    "explain": "头文件会被文本式复制进每个包含它的翻译单元，所以头文件里的定义等于每个 TU 各定义一次。`extern int g_count;` 只是声明，不分配存储；不带 `extern` 且带初始化（或不带 `extern` 的命名空间作用域变量）才是定义。C++17 的 `inline` 变量专门解决“头文件里一处定义、多处使用”的诉求，替代了 `static const` 和枚举这些旧绕法。判分要点：报错类型必须是链接期的 multiple definition，且给出 `extern` 加单一定义、或 `inline` 变量两种修法之一，只写“加 `static`”会变成每个 TU 各一份、语义已变。"
+  },
+  {
+    "id": "d2-x20",
+    "cat": "d2",
+    "unit": 20,
+    "unitTitle": "explicit 的作用",
+    "type": "code",
+    "diff": 3,
+    "q": "`Meters` 的构造函数标了 `explicit`，`Grams` 没标，`Handle` 提供 `explicit operator bool`。请指出 `main` 中哪些编号语句无法编译，并说明各自触犯了哪条规则。\n```cpp\n#include <iostream>\n\nstruct Meters { explicit Meters(double) {} };\nstruct Grams  { Grams(double) {} };\nstruct Handle { explicit operator bool() const { return true; } };\n\nvoid setSpeed(Meters) {}\n\nint main() {\n    setSpeed(3.5);                      // ①\n    setSpeed(Meters(3.5));              // ②\n    setSpeed(static_cast<Meters>(3.5)); // ③\n    Meters a = 3.5;                     // ④\n    Meters b{3.5};                      // ⑤\n    Grams g = 3.5;                      // ⑥\n    Handle h;\n    if (h) {}                           // ⑦\n    bool v = h;                         // ⑧\n    bool w = static_cast<bool>(h);      // ⑨\n}\n```",
+    "ref": "无法编译的是 ①、④、⑧。① `setSpeed(3.5)` 需要用 `double` 隐式构造 `Meters`，`explicit` 关掉了这条通道；④ `Meters a = 3.5;` 是复制初始化，同样要求隐式转换；⑧ `bool v = h;` 也是复制初始化，而 `explicit operator bool` 只允许语境转换（`if`/`while`/`!`/`&&`/`||`）。可编译的是 ② 直接初始化、③ `static_cast` 显式转换、⑤ 直接列表初始化、⑥ `Grams` 没加 `explicit` 故允许隐式转换、⑦ `if` 属语境转换、⑨ 显式 `static_cast`。判定要点：`explicit` 只挡隐式转换与复制初始化，不挡直接初始化、花括号直接初始化和显式转换。",
+    "explain": "判断标准只有一条：这条语句是否要求“隐式”转换。复制初始化（`T x = expr;`）和函数实参传递都要求隐式转换，`explicit` 构造函数、`explicit` 转换函数会让它们失败；直接初始化 `T x(expr)`、`T x{expr}` 和 `static_cast<T>(expr)` 都是显式要求构造，仍然合法。`explicit operator bool` 的例外是语境转换，`if`、`while`、`!`、`&&`、`||` 明确允许它。易错点是以为 `Meters b{3.5}` 也会被拒，或以为 `if (h)` 需要去掉 `explicit`。判分要点：三类失败语句一条不漏，且能解释 `if (h)` 合法而 `bool v = h;` 不合法的原因。"
+  },
+  {
+    "id": "d2-x21",
+    "cat": "d2",
+    "unit": 21,
+    "unitTitle": "final 关键字",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的继承体系里混入了若干违规写法。请指出哪些编号行会导致编译错误，并分别说明它违反了 `final` 的哪条规则。\n```cpp\nstruct Base {\n    virtual ~Base() = default;\n    virtual void tick() final {}\n    virtual void draw() {}\n};\n\nstruct Mid : Base {\n    void tick() override {}      // ①\n    void draw() override {}      // ②\n};\n\nclass Sealed final {\npublic:\n    virtual ~Sealed() = default;\n};\n\nclass Broken : public Sealed {}; // ③\n\nstruct Plain {\n    void f() final {}            // ④\n};\n```",
+    "ref": "编译错误的是 ①、③、④。① 在 `Mid` 里覆盖 `Base::tick`，但该函数已声明 `final`，禁止派生类再覆盖，报错形如 “cannot override 'final' function”。③ 试图从 `Sealed` 派生，而 `Sealed` 是 `final` 类，禁止任何类继承它。④ 给非虚函数 `Plain::f` 加 `final`，`final` 只对虚函数有意义，这里直接编译错误。② 合法：`draw` 是普通虚函数，`Mid` 覆盖它没有问题。判定要点：分清 `final` 的两个位置（类头 / 虚函数声明末尾）；`final` 不改变访问控制，也不替代虚析构，`Base` 仍需要 `virtual ~Base()`。",
+    "explain": "`final` 是编译期的“到此为止”标记：写在类头禁止派生，写在虚函数声明末尾禁止覆盖，违规都在编译期报错，不会拖到运行期。它还是上下文关键字，只在类头或虚函数声明位置有特殊含义，老代码里叫 `final` 的变量名不受影响。常见误用有两类：把 `final` 加到非虚函数上（编译错误），以及以为 `final` 能替代虚析构（`final` 类若基类析构非虚，通过基类指针 `delete` 仍是 UB）。判分要点：三个错误编号齐全，且能说明 `final` 只回答“能不能再继承、能不能再覆盖”。"
+  },
+  {
+    "id": "d2-x22",
+    "cat": "d2",
+    "unit": 22,
+    "unitTitle": "四种类型转换",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的程序混用了 `static_cast`、`const_cast` 与 `void*` 往返转换。请给出输出，并说明注释掉的 `r = 8;` 一旦启用会发生什么、原因是什么。\n```cpp\n#include <cstdint>\n#include <iostream>\n\nint main() {\n    double d = 3.9;\n    int n = static_cast<int>(d);\n    std::uint32_t u = static_cast<std::uint32_t>(-1);\n\n    const int ci = 7;\n    int& r = const_cast<int&>(ci);\n\n    void* p = &n;\n    int* q = static_cast<int*>(p);\n\n    std::cout << n << ' ' << u << ' ' << *q << '\\n';\n    // r = 8;\n}\n```",
+    "ref": "输出 `3 4294967295 3`。`static_cast<int>(3.9)` 是截断而非四舍五入，得 3；`static_cast<std::uint32_t>(-1)` 按模 2^32 回绕，得 4294967295；`void*` 经 `static_cast` 转回 `int*` 是标准允许的双向转换，`q` 仍指向 `n`，解引用得 3。`r = 8;` 一旦启用就是未定义行为：`ci` 本身是 `const` 对象，`const_cast` 只去掉类型上的 `const`，并不改变“对象本身只读”这一事实，编译器完全可能把 `ci` 折叠成常量或把它放进只读段，写入结果不可预期（可能读回 7，也可能崩溃）。判定要点：`const_cast` 的合法用途是“底层对象本来可写、只是接口传了 `const` 引用”，对真正常量写入一律 UB。",
+    "explain": "这题考三件事：`static_cast` 的数值语义（浮点转整型截断、有符号转无符号按模回绕）、`void*` 与对象指针往返属于 `static_cast` 且安全、`const_cast` 只增删 cv 限定而不改变对象本身。`const_cast` 后能否写入取决于原对象是否真的可写：原对象是 `const int` 时写入是 UB，编译器不会为此报错。易错点是把 `reinterpret_cast` 和 `static_cast` 的 `void*` 往返混为一谈，或以为 `static_cast<int>` 会四舍五入。判分要点：三个输出值全对，且必须指出 UB 的判定依据是“对象本身 const”。"
+  },
+  {
+    "id": "d2-x23",
+    "cat": "d2",
+    "unit": 23,
+    "unitTitle": "this 指针",
+    "type": "code",
+    "diff": 3,
+    "q": "基类构造函数与析构函数里都调用了虚函数 `who()`，派生类覆盖了它。请给出 `main` 的完整输出，并解释为什么输出里根本没有出现 `Derived`。\n```cpp\n#include <iostream>\n\nstruct Base {\n    Base() { who(); }\n    virtual ~Base() { who(); }\n    virtual void who() const { std::cout << \"Base\\n\"; }\n};\n\nstruct Derived : Base {\n    void who() const override { std::cout << \"Derived\\n\"; }\n};\n\nint main() {\n    Derived d;\n}\n```",
+    "ref": "输出两行 `Base`、`Base`。构造 `Derived d;` 时先执行 `Base` 的构造函数，此时 `Derived` 部分还没构造，对象的动态类型被视为 `Base`，虚调用派发到 `Base::who`，打印第一行 `Base`。析构顺序相反：先执行 `~Derived`（未打印），再执行 `~Base`，而进入 `~Base` 时 `Derived` 部分已经销毁，动态类型同样退回 `Base`，于是又打印一次 `Base`。判定要点：C++ 规定构造/析构期间虚调用只派发到当前正在构造/析构的类，这与 `final`、`this` 的类型都无关；想拿到派生类行为只能在对象构造完成之后调用。",
+    "explain": "这条规则来自对象生命周期的阶段性：基类构造期间派生类成员还没构造，若允许派发到派生类版本就会访问未初始化成员；析构期间同理，派生类部分已销毁。因此语言规定 ctor/dtor 内的虚调用按“当前类”解析，效果等价于静态绑定到本类版本。`this` 的动态类型在这两个阶段也被视为当前类，所以靠 `this` 也救不了。易错点是把现象解释成“虚函数没生效”或“被 `final` 影响了”。判分要点：两行输出顺序正确，并说明“构造/析构期间只派发到当前类”的机制。"
+  },
+  {
+    "id": "d2-x24",
+    "cat": "d2",
+    "unit": 24,
+    "unitTitle": "#include <a.h> 与 #include \"a.h\"",
+    "type": "code",
+    "diff": 2,
+    "q": "目录里有 `src/a.h`（定义 `WHO` 为 `\"src\"`）和 `include/a.h`（定义为 `\"include\"`），编译命令是 `g++ -Iinclude src/main.cpp`。请给出当前输出，以及删掉 `src/a.h` 后、把包含形式改成 `<a.h>` 后的输出。\n```cpp\n// 目录：src/main.cpp、src/a.h、include/a.h\n// 编译：g++ -Iinclude src/main.cpp\n\n// src/a.h      : #define WHO \"src\"\n// include/a.h  : #define WHO \"include\"\n\n// src/main.cpp\n#include <cstdio>\n#include \"a.h\"\n\nint main() {\n    std::printf(\"%s\\n\", WHO);\n}\n```",
+    "ref": "三种情况输出依次是 `src`、`include`、`include`。双引号形式先搜索“包含它的源文件”所在目录，`main.cpp` 位于 `src/`，于是先命中 `src/a.h`，输出 `src`。删掉 `src/a.h` 后引号形式找不到会回退到尖括号那套搜索路径，`-Iinclude` 让 `include/a.h` 被命中，输出 `include`。改成 `<a.h>` 时根本不搜索源文件目录，只在系统目录与 `-I` 目录里找，所以即使 `src/a.h` 还在，输出的也是 `include`。判定要点：引号形式的“当前目录”相对于包含它的文件，而不是编译时的工作目录；`-I` 对两种形式都生效。",
+    "explain": "两种包含形式的差别只在搜索顺序：引号先看源文件目录（具体规则由实现定义），找不到再回退；尖括号跳过源文件目录，直接走系统目录和 `-I`/`-isystem`。因此同名头文件会因写法不同命中不同版本，这是“改了代码却没生效”的真实来源。第三方库目录建议用 `-isystem`：默认抑制其警告，且一般排在 `-I` 之后。易错点是以为引号只搜当前目录、或以为 `-I` 只对尖括号生效。判分要点：三种输出全对，并能说清回退规则与“相对源文件而非 cwd”。"
+  },
+  {
+    "id": "d2-x25",
+    "cat": "d2",
+    "unit": 25,
+    "unitTitle": "命名空间",
+    "type": "code",
+    "diff": 2,
+    "q": "两个命名空间各有一个同签名的 `log()`，`main` 之前同时写了两条 `using namespace`。请说明编译结果与报错含义，并给出两种能真正消除问题的修法。\n```cpp\n#include <iostream>\n\nnamespace A { void log() { std::cout << \"A\\n\"; } }\nnamespace B { void log() { std::cout << \"B\\n\"; } }\n\nusing namespace A;\nusing namespace B;\n\nint main() {\n    log();\n}\n```",
+    "ref": "编译失败，`log();` 处报二义性（GCC 形如 “reference to 'log' is ambiguous”），并列出 `A::log` 与 `B::log` 两个候选。原因：`using` 指令把两个命名空间里的全部名字都倒进全局作用域参与普通名字查找，两个同签名 `log` 同时可见，重载决议无法区分，只能报错。修法：① 删掉其中一条 `using namespace`，只让一边的名字可见；② 删掉两条指令，改为调用处写完整限定名 `A::log();`，或在最小作用域里用 `using A::log;` 只引入一个名字（声明参与重载，且不会带进 `B::log`）。判定要点：报错发生在调用点而不是 `using` 行；“后写的那条覆盖前面”并不存在。",
+    "explain": "`using` 声明与 `using` 指令的差别在这里暴露得很清楚：声明只把指定的那一个名字引入当前作用域，影响面可控且仍参与重载；指令把整个命名空间的名字都变成可见，两个来源同名时立刻二义。更麻烦的是报错位置在调用点，离 `using` 行很远，排查成本高，所以头文件里禁止 `using namespace`。易错点是把两条 `using namespace` 当成“优先级”，或改用别名 `namespace C = A;` 以为能消歧。判分要点：指出“同一作用域出现两个同名候选”导致的二义性，并给出可落地的修法。"
+  },
+  {
+    "id": "d2-x26",
+    "cat": "d2",
+    "unit": 26,
+    "unitTitle": "auto 与 decltype",
+    "type": "code",
+    "diff": 3,
+    "q": "`firstCopy` 用 `auto` 作返回类型，`firstRef` 用 `decltype(auto)`。请给出程序输出，并说明若把 `firstRef` 的返回类型也改成 `auto`，哪一行会编译失败。\n```cpp\n#include <iostream>\n#include <vector>\n\nstd::vector<int> v{10, 20, 30};\n\nauto firstCopy() { return v[0]; }            // int\ndecltype(auto) firstRef() { return v[0]; }   // int&\n\nint main() {\n    int x = firstCopy();\n    firstRef() = 99;\n    std::cout << v[0] << ' ' << x << '\\n';\n}\n```",
+    "ref": "输出 `99 10`。`firstCopy` 的 `auto` 返回类型按模板推导、按值返回，`x` 拿到的是拷贝 `10`，之后不再受 `v` 影响。`firstRef` 用 `decltype(auto)`，按 `decltype(v[0])` 推导：`v[0]` 是返回 `int&` 的调用表达式、属于左值，于是返回 `int&`，`firstRef() = 99` 直接改到 `v[0]`，所以先打印 99。若把 `firstRef` 改成 `auto`，返回值退化为 `int` 纯右值，`firstRef() = 99;` 这一行编译失败（不能给纯右值赋值），`v[0]` 也不会被修改。判定要点：`auto` 丢引用，`decltype(auto)` 保留引用；想返回引用还可写 `auto&` 或尾置 `decltype`。",
+    "explain": "`auto` 的推导规则来自模板实参推导：去掉引用、去掉顶层 `const`，所以按值返回必然产生拷贝；`decltype(auto)` 直接套用 `decltype` 规则，对左值表达式 `v[0]` 得到 `int&`。想返回引用时三者等价可选：`auto&`、`decltype(auto)`、`-> decltype(expr)`；写成裸 `auto` 会静默退化成值，链式赋值或修改原对象的写法随之失效。易错点是把 `decltype(v[0])` 误认为 `int`（`operator[]` 返回引用，表达式是左值），以及以为 `auto` 返回类型会自动跟随 `return` 的引用。判分要点：输出顺序（99 在前）与“赋值给纯右值编译失败”都要答对。"
+  }
+]

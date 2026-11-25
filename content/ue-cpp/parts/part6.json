@@ -1,0 +1,432 @@
+[
+  {
+    "id": "ue3-001",
+    "cat": "ue3",
+    "unit": 15,
+    "unitTitle": "Q15 裸指针与 TObjectPtr",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `TObjectPtr` 与裸指针的区别，下列哪些说法与原文一致？（多选）",
+    "options": [
+      "运行时两者都只是地址，`TObjectPtr` 的价值全在编辑器与反射那一层",
+      "成员写成 `TObjectPtr` 就自带引用边，不加 `UPROPERTY` 也能保活对象",
+      "Shipping 构建里 `TObjectPtr` 通常退化为裸指针大小，成本在反射与 GC 遍历",
+      "`TObjectPtr` 是强引用语义，想表达不保活要用 `TWeakObjectPtr`",
+      "`TObjectPtr` 可以直接绑定到 `UObject*&` 这类输出参数上"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "引用边来自 `UPROPERTY`，不是指针类型，漏写 `UPROPERTY` 的 `TObjectPtr` 一样会被 GC 回收，所以第 2 项错。`TObjectPtr` 不能绑定到 `T*&` 输出参数，需要先声明局部裸指针再写回成员，第 5 项错。Shipping 下这层包装常被编译掉，运行时开销与裸指针基本相同。",
+    "src": "深读.md#ue-unit-15"
+  },
+  {
+    "id": "ue3-002",
+    "cat": "ue3",
+    "unit": 15,
+    "unitTitle": "Q15 裸指针与 TObjectPtr",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的成员声明与取目标写法与原文要求有两处不符，请指出并改正：\n\nTObjectPtr<AActor> Target;   // 成员，需要跨帧存活\n\nvoid AMyTurret::Refresh()\n{\n    FindTargetInto(Target);   // void FindTargetInto(AActor*& OutTarget);\n}",
+    "ref": "① 成员漏了 `UPROPERTY()`，应写成 `UPROPERTY() TObjectPtr<AActor> Target;`——类型本身不产生引用边，漏写 `UPROPERTY` 的 `TObjectPtr` 一样会被回收。② `TObjectPtr` 不能绑定到 `AActor*&` 输出参数，需先用局部裸指针接收再写回成员：\nAActor* Out = nullptr;\nFindTargetInto(Out);\nTarget = Out;",
+    "explain": "原文“④ 真实坑”第 1、4 条：漏写 `UPROPERTY` 时编译完全通过，运行时对象被 GC 回收、指针变悬垂；把 `TObjectPtr` 传给 `T*&` 会编译失败，因为包装对象不能绑到裸指针的引用上。两处都属于“类型没错、声明或用法错了”。",
+    "src": "深读.md#ue-unit-15"
+  },
+  {
+    "id": "ue3-003",
+    "cat": "ue3",
+    "unit": 16,
+    "unitTitle": "Q16 TWeakObjectPtr 的语义和适用场景",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `TWeakObjectPtr` 的语义与使用，下列哪些说法正确？（多选）",
+    "options": [
+      "内部记录对象索引和序列号，不持有强引用边，因此不阻止 GC",
+      "标了 `UPROPERTY` 的 `TWeakObjectPtr` 会把对象保活",
+      "它要读全局对象数组和 GC 状态，没有原子保护，只能在游戏线程访问",
+      "`Get()` 要回查对象状态，不是零成本判空，热路径上取一次存局部变量",
+      "对象被 GC 回收后弱指针会自动变成可长期使用的普通指针"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "`UPROPERTY` 只让弱指针进入反射/序列化流程，弱引用没有强引用边，对象照样被回收，第 2 项是常见误解。弱指针只保证“取用时能判有效”，判完到真正使用之间对象仍可能被销毁，不能失效后当普通指针长期持有，第 5 项错。原文另外强调 `Get()` 有开销且非线程安全。",
+    "src": "深读.md#ue-unit-16"
+  },
+  {
+    "id": "ue3-004",
+    "cat": "ue3",
+    "unit": 16,
+    "unitTitle": "Q16 TWeakObjectPtr 的语义和适用场景",
+    "type": "fill",
+    "diff": 2,
+    "q": "`TWeakObjectPtr` 观察的是 GC 管理的 UObject，失效由 GC 决定；共享指针体系里观察引用计数对象、失效由计数归零决定的是 ____。",
+    "answer": ["TWeakPtr", "TWeakPtr<T>"],
+    "explain": "原文明确两者解决同一类问题但作用域不同：`TWeakObjectPtr` 记对象索引加序列号，靠比对判断 UObject 还在不在；`TWeakPtr` 依附共享计数体系，不增加共享计数，计数归零对象析构后失效。两者不能互换，也不能拿一个去管另一个世界的对象。",
+    "src": "深读.md#ue-unit-16"
+  },
+  {
+    "id": "ue3-005",
+    "cat": "ue3",
+    "unit": 17,
+    "unitTitle": "Q17 TSharedPtr、TSharedRef、TUniquePtr 的区别",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 `TUniquePtr`、`TSharedPtr`、`TSharedRef`，下列哪一项与原文一致？",
+    "options": [
+      "`TUniquePtr` 没有控制块和原子计数，大小基本等于一个指针，禁止拷贝只能转移",
+      "`TSharedRef` 可以由空的 `TSharedPtr` 隐式构造得到，两者可以随便互转",
+      "`TSharedPtr` 就是 `std::shared_ptr` 的别名，可以和它混着传",
+      "三种智能指针都可以用来管理 UObject，只要不标 `UPROPERTY`",
+      "`TSharedPtr` 升级成 `TSharedRef` 不需要判空"
+    ],
+    "answer": [0],
+    "explain": "`TSharedRef` 只能由非空构造或 `ToSharedRef()` 得到，空指针强转会触发检查失败，降级 `TSharedRef`→`TSharedPtr` 才是隐式安全的。UE 智能指针是独立实现，和 `std::shared_ptr` 混用会重复计数；三者都只用于非 UObject 对象，给 UObject 用会形成两套所有权。",
+    "src": "深读.md#ue-unit-17"
+  },
+  {
+    "id": "ue3-006",
+    "cat": "ue3",
+    "unit": 17,
+    "unitTitle": "Q17 TSharedPtr、TSharedRef、TUniquePtr 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面片段有两处需要按原文修正，请指出并改正：\n\nTSharedPtr<FDecodedImage> Image = MakeShared<FDecodedImage>();\nCache->Add(Image.ToSharedRef());          // Add 形参是 const TSharedRef<FDecodedImage>&\n\nTUniquePtr<FScopedTimer> Timer = MakeUnique<FScopedTimer>();\nTUniquePtr<FScopedTimer> Copy = Timer;    // 想把计时器交给另一个成员",
+    "ref": "① 调 `ToSharedRef()` 前必须先判空：`if (Image.IsValid()) { Cache->Add(Image.ToSharedRef()); }`，对空的 `TSharedPtr` 调 `ToSharedRef()` 会触发检查失败。② `TUniquePtr` 的拷贝构造和拷贝赋值都被删除，`TUniquePtr<FScopedTimer> Copy = Timer;` 编译不过，应改为转移所有权：`TUniquePtr<FScopedTimer> Moved = MoveTemp(Timer);`",
+    "explain": "`TSharedRef` 是非空契约，可空不能隐式升非空，必须走 `ToSharedRef()` 并自行保证非空。`TUniquePtr` 表达独占，只能 `MoveTemp` 转移，转移后原指针变空；要“拷贝”语义得写 `Clone()` 之类的显式接口。",
+    "src": "深读.md#ue-unit-17"
+  },
+  {
+    "id": "ue3-007",
+    "cat": "ue3",
+    "unit": 18,
+    "unitTitle": "Q18 什么时候该用共享指针",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于“什么时候该用共享指针”，下列哪些说法正确？（多选）",
+    "options": [
+      "大多数对象所有权是单一的，默认答案应是 `TUniquePtr`，共享会带来控制块、原子计数和成环风险",
+      "`ThreadSafe` 说明被指向的对象内容也是线程安全的",
+      "`ThreadSafe` 只保证引用计数增减是原子的，对象内容的数据竞争它不负责",
+      "接口参数用 `TSharedRef` 可以把“非空”变成类型契约，函数体不用再判空",
+      "只是观察、不该保活的关系应当用 `TSharedPtr`，这样对象不会提前释放"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "`ThreadSafe` 只让计数增减原子化，多个线程通过共享指针访问同一对象的数据照样数据竞争，第 2 项是常见误解。观察者应该用 `TWeakPtr` 不延长寿命，改成 `TSharedPtr` 会让观察方决定对象生死，第 5 项错。选择顺序是先问是不是 UObject，再问是不是唯一所有者。",
+    "src": "深读.md#ue-unit-18"
+  },
+  {
+    "id": "ue3-008",
+    "cat": "ue3",
+    "unit": 18,
+    "unitTitle": "Q18 什么时候该用共享指针",
+    "type": "code",
+    "diff": 2,
+    "q": "阅读下面的所有权设计，指出其中的问题并改正：\n\nTSharedPtr<FDecodedImage> Image = MakeShared<FDecodedImage>();\nTSharedPtr<FDecodedImage> Thumbnail = Image;              // 缩略图面板只观察\nTSharedPtr<FHitCache, ESPMode::NotThreadSafe> Cache = HitCache;  // 会在多个工作线程的回调里使用",
+    "ref": "① 缩略图面板只观察，不该延长对象寿命，应改成 `TWeakPtr<FDecodedImage> Thumbnail = Image;`，此时共享计数仍是 1。② `ESPMode::NotThreadSafe` 只适合确定只在游戏线程使用的对象；这段缓存会在多个工作线程回调里使用，必须用默认的 `ThreadSafe`，否则计数增减没有原子保护。",
+    "explain": "原文可观察验证：把观察边从 `TWeakPtr` 改成 `TSharedPtr`，计数多 1、对象寿命被观察方延长。`NotThreadSafe` 省的是原子计数开销，前提是单线程访问；`ThreadSafe` 也只保护计数，不保护对象内容。",
+    "src": "深读.md#ue-unit-18"
+  },
+  {
+    "id": "ue3-009",
+    "cat": "ue3",
+    "unit": 19,
+    "unitTitle": "Q19 循环引用会泄漏吗",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于循环引用与两套回收判据，下列哪些说法正确？（多选）",
+    "options": [
+      "UObject 之间强引用成环就一定会泄漏",
+      "共享指针成环时环内计数互相支撑，永远不归零",
+      "UObject 的环只要有任意节点被根集挂住，整组就会永远活着",
+      "破环只能把某条边降级成弱引用，没有别的办法",
+      "GC 是标记-清除，从根集出发判可达性，整组不可达的环会被一起回收"
+    ],
+    "answer": [1, 2, 4],
+    "explain": "UObject 侧纯环本身不会漏，漏的是被根挂住的环（例如全局管理器的 `UPROPERTY` 容器强引用一组互相引用的对象），第 1 项是常见误解。破环有两类手段：降级弱引用，或在明确的生命周期节点显式断链（`Reset()`、清容器、解绑委托），第 4 项错。共享指针没有根的概念，只有计数。",
+    "src": "深读.md#ue-unit-19"
+  },
+  {
+    "id": "ue3-010",
+    "cat": "ue3",
+    "unit": 19,
+    "unitTitle": "Q19 循环引用会泄漏吗",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的父子结构在离开作用域后一条 `FNode destroyed` 都不会打印，请说明原因并给出改法：\n\nclass FNode : public TSharedFromThis<FNode>\n{\npublic:\n    void SetChild(const TSharedPtr<FNode>& InChild)\n    {\n        Child = InChild;\n        InChild->Parent = AsShared();\n    }\nprivate:\n    TSharedPtr<FNode> Child;\n    TSharedPtr<FNode> Parent;\n};\n\n{\n    TSharedPtr<FNode> Root = MakeShared<FNode>();\n    TSharedPtr<FNode> Leaf = MakeShared<FNode>();\n    Root->SetChild(Leaf);\n}",
+    "ref": "父→子和子→父都是 `TSharedPtr`，形成双向强引用环，两边共享计数都至少为 1，任何一方都不会先析构。把回指边降级即可：\nprivate:\n    TSharedPtr<FNode> Child;\n    TWeakPtr<FNode> Parent;\n改完后离开作用域会打印两条 `FNode destroyed`；强弱方向按“谁决定谁的生命周期”来定。",
+    "explain": "共享指针的判据是计数归零，环内互撑就永远不归零，属于稳定泄漏。改成 `TWeakPtr` 后弱边不增加共享计数，环被打断。原文可观察验证：把 `Parent` 改回 `TSharedPtr` 重跑，`FNode destroyed` 一条都不会打印，程序退出也不打印。",
+    "src": "深读.md#ue-unit-19"
+  },
+  {
+    "id": "ue3-011",
+    "cat": "ue3",
+    "unit": 20,
+    "unitTitle": "Q20 IsValid 和 nullptr 判断的区别",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 `IsValid` 与 `!= nullptr`，下列哪一项与原文一致？",
+    "options": [
+      "`IsValid` 先判空，再检查对象自身状态（垃圾标记等），比 `!= nullptr` 严格",
+      "`IsValid` 能防住所有悬垂指针，包括普通堆对象和野指针",
+      "Actor 的 `IsValid` 通过就可以放心操作它的组件，无需再看销毁状态",
+      "对象被 `Destroy()` 之后，裸指针会立刻变成 `nullptr`"
+    ],
+    "answer": [0],
+    "explain": "`IsValid` 只对 UObject 有效，靠对象状态判断失效，普通堆对象和野指针它管不了。Actor 还有销毁流程中间态，要额外看 `IsActorBeingDestroyed()`；`Destroy()` 只是发起销毁，内存要等 GC，指针仍非空，所以统一用 `IsValid`。",
+    "src": "深读.md#ue-unit-20"
+  },
+  {
+    "id": "ue3-012",
+    "cat": "ue3",
+    "unit": 20,
+    "unitTitle": "Q20 IsValid 和 nullptr 判断的区别",
+    "type": "fill",
+    "diff": 2,
+    "q": "稳妥的 Actor 判活写法是 `IsValid(Actor) && !Actor->____()`，两个条件都满足才继续操作它的组件和世界。",
+    "answer": ["IsActorBeingDestroyed", "IsActorBeingDestroyed()"],
+    "explain": "Actor 的销毁是流程性的：`Destroy()` 之后它可能在本帧内仍然存在，组件开始拆、世界引用开始清，此时 `IsValid` 仍可能通过。原文给出的稳妥写法正是 `IsValid(Actor) && !Actor->IsActorBeingDestroyed()`，别在半销毁状态操作组件。",
+    "src": "深读.md#ue-unit-20"
+  },
+  {
+    "id": "ue3-013",
+    "cat": "ue3",
+    "unit": 21,
+    "unitTitle": "Q21 TSoftObjectPtr 和 TSubclassOf 解决什么问题",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于 `TSoftObjectPtr` 与 `TSubclassOf`，下列哪些说法正确？（多选）",
+    "options": [
+      "`TSoftObjectPtr` 内部是 `FSoftObjectPath`（包名 + 对象名），不加载、不阻止 GC",
+      "软引用会被 cook 系统顺着依赖自动打进包，不用额外配置",
+      "`TSubclassOf<T>` 是类型安全的类引用，所以运行期 `SpawnActor` 一定成功",
+      "软引用必须显式加载：`LoadSynchronous()` 或走 `StreamableManager` 异步",
+      "软引用加载后拿到的仍是普通 UObject，要靠强引用才能保活"
+    ],
+    "answer": [0, 3, 4],
+    "explain": "软引用在某些流程里不会被自动追踪，打包后可能“编辑器正常、包里加载失败”，要用 `DirectoriesToAlwaysCook` 或硬引用兜底，第 2 项错。`TSubclassOf` 只把可选范围限制在 `T` 及其子类，字段为空照样生成失败，生成前必须判空，第 3 项错。软指针字段本身永远只是路径，不保活。",
+    "src": "深读.md#ue-unit-21"
+  },
+  {
+    "id": "ue3-014",
+    "cat": "ue3",
+    "unit": 21,
+    "unitTitle": "Q21 TSoftObjectPtr 和 TSubclassOf 解决什么问题",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的加载与生成代码缺少原文要求的检查，请补全并说明理由：\n\nvoid AMyWeapon::Preload()\n{\n    FStreamableManager& Streamable = UAssetManager::GetStreamableManager();\n    LoadHandle = Streamable.RequestAsyncLoad(\n        MeshAsset.ToSoftObjectPath(),\n        FStreamableDelegate::CreateUObject(this, &AMyWeapon::OnMeshReady));\n}\n\nvoid AMyWeapon::OnMeshReady()\n{\n    UStaticMesh* Mesh = MeshAsset.Get();\n    MeshComponent->SetStaticMesh(Mesh);\n}\n\nvoid AMyWeapon::Fire()\n{\n    GetWorld()->SpawnActor<AActor>(ProjectileClass, GetActorLocation(), GetActorRotation());\n}",
+    "ref": "① `Preload` 先判“没配置”：`if (MeshAsset.IsNull()) { return; }`，`IsNull` 为真表示没配路径，不是加载失败。② `OnMeshReady` 里 `Get()` 后必须判空再设置：`if (!Mesh) { return; }`，保活靠 `MeshComponent` 上的强引用。③ `Fire` 生成前判空：`if (!ProjectileClass) { return; }`，类型安全不等于一定配置了类。",
+    "explain": "原文 ② 的示例就是这三处判空：`IsNull` 用来区分“没配置”与“加载失败”；软指针字段本身永远不保活，加载后靠组件上的强引用；`TSubclassOf` 为空直接 `SpawnActor` 轻则返回空、重则崩。另需注意软引用不保证被 cook，要配 `DirectoriesToAlwaysCook` 兜底。",
+    "src": "深读.md#ue-unit-21"
+  },
+  {
+    "id": "ue4-015",
+    "cat": "ue4",
+    "unit": 22,
+    "unitTitle": "Q22 Actor 的完整生命周期",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 Actor 的完整生命周期，下列哪些说法正确？（多选）",
+    "options": [
+      "`PostLoad` 只对从磁盘反序列化的对象生效，运行期 `SpawnActor` 不会调用它",
+      "`BeginPlay` 的先后可以由关卡摆放顺序或层级保证",
+      "Actor 之间的初始化顺序、`BeginPlay` 的相对顺序都没有保证",
+      "能依赖的顺序只有 `EndPlay` 在 `Destroyed` 之前、`Destroyed` 在回收之前",
+      "`BeginDestroy` 与 `FinishDestroy` 的先后是固定的"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "Spawn 路径走 `PostActorCreated`、不调 `PostLoad`，所以写在 `PostLoad` 的修正逻辑对运行期生成的 Actor 失效。`BeginPlay` 顺序无保证，跨 Actor 依赖要靠 GameMode 调度或委托。销毁阶段刻意不保证 `BeginDestroy` 与 `FinishDestroy` 的先后，因为 GC 是无序回收，第 5 项错。",
+    "src": "深读.md#ue-unit-22"
+  },
+  {
+    "id": "ue4-016",
+    "cat": "ue4",
+    "unit": 22,
+    "unitTitle": "Q22 Actor 的完整生命周期",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的实现有两处与原文的加载、销毁规则不符，请指出并改正：\n\nvirtual void PostLoad() override\n{\n    Super::PostLoad();\n    CacheNearbyActors();      // 希望所有 AProbeActor 初始化后都执行\n}\n\nvirtual void EndPlay(const EEndPlayReason::Type Reason) override\n{\n    GetWorldTimerManager().ClearTimer(Handle);\n}",
+    "ref": "① `PostLoad` 只对从磁盘反序列化的对象生效，PIE 里 `SpawnActor` 出来的实例根本不会走到这里；想让两类来源都生效要放在 `PostInitializeComponents` 或 `BeginPlay`。② `EndPlay` 必须调 `Super::EndPlay(Reason)`，否则组件收不到 `EndPlay`，定时器、委托、子组件 tick 都会残留。",
+    "explain": "原文 ② 的示例在 `EndPlay` 里先清理再 `Super::EndPlay(Reason)`，并注明“必须调 Super，否则组件收不到 EndPlay”。“④ 真实坑”第 2、3 条正是这两类错误：把 `PostLoad` 当通用初始化、`EndPlay` 忘调 `Super`。",
+    "src": "深读.md#ue-unit-22"
+  },
+  {
+    "id": "ue4-017",
+    "cat": "ue4",
+    "unit": 23,
+    "unitTitle": "Q23 构造函数里能做什么、不能做什么",
+    "type": "single",
+    "diff": 1,
+    "q": "关于 Actor 的构造函数，下列哪一项与原文一致？",
+    "options": [
+      "构造函数只在实例化时执行一次，可以顺手做全局注册",
+      "`GetWorld()` 在 CDO 和实例构造时都为空，依赖 World 的逻辑必须推迟到 PIC 或 `BeginPlay`",
+      "构造函数里读到的是编辑器里配好的值，因为序列化先于构造",
+      "构造函数里可以 `SpawnActor`，只要先 `if (GetWorld())` 判空"
+    ],
+    "answer": [1],
+    "explain": "构造函数会在 CDO、每个实例上各跑一次，蓝图重编译还会再造 CDO，副作用会成倍出现且必须幂等。序列化在构造之后才覆盖成员，构造函数里读到的是代码默认值；`if (GetWorld())` 只是让代码静默不执行，比直接崩更难查。",
+    "src": "深读.md#ue-unit-23"
+  },
+  {
+    "id": "ue4-018",
+    "cat": "ue4",
+    "unit": 23,
+    "unitTitle": "Q23 构造函数里能做什么、不能做什么",
+    "type": "fill",
+    "diff": 1,
+    "q": "默认组件只能在构造函数里用 `____` 创建；运行期加组件要走 `NewObject` + `SetupAttachment` + `RegisterComponent`，两套路径不能混用。",
+    "answer": ["CreateDefaultSubobject", "CreateDefaultSubobject<T>"],
+    "explain": "原文本质表写明：默认组件只能在此阶段用 `CreateDefaultSubobject` 创建，运行期加组件要走 `NewObject` + `RegisterComponent`。它只能在构造函数中调用，且组件名必须唯一，两个组件同名会断言或互相覆盖。",
+    "src": "深读.md#ue-unit-23"
+  },
+  {
+    "id": "ue4-019",
+    "cat": "ue4",
+    "unit": 24,
+    "unitTitle": "Q24 BeginPlay 和 PostInitializeComponents 的区别",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `PostInitializeComponents` 与 `BeginPlay`，下列哪些说法正确？（多选）",
+    "options": [
+      "PIC 保证本 Actor 的所有组件都初始化完，World 可用、组件已注册",
+      "PIC 比 `BeginPlay` 早，所以能安全拿到别的 Actor 的初始化结果",
+      "Actor 的 `BeginPlay` 先跑，再派发组件自己的 `BeginPlay`",
+      "关卡加载时所有 Actor 的初始化跑完才统一派发 `BeginPlay`",
+      "运行期 Spawn 的 Actor 也参与上述批量流程，`BeginPlay` 会被延后统一派发"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "PIC 只保证自己的组件就绪，跨 Actor 依赖两边都不能赌，第 2 项是常见误解。运行期 Spawn 的 Actor 不参与批量流程，它的 `BeginPlay` 紧跟 PIC 同步执行，第 5 项错。组件 `BeginPlay` 在 Actor `BeginPlay` 之后派发，所以在 `Actor::BeginPlay` 里读组件 BeginPlay 的产物会读到未初始化值。",
+    "src": "深读.md#ue-unit-24"
+  },
+  {
+    "id": "ue4-020",
+    "cat": "ue4",
+    "unit": 24,
+    "unitTitle": "Q24 BeginPlay 和 PostInitializeComponents 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的写法在某些情况下会丢掉组件事件，请指出问题并改正：\n\nvoid AMyTower::BeginPlay()\n{\n    Super::BeginPlay();\n    HealthComp = FindComponentByClass<UHealthComponent>();\n    HealthComp->OnHealthZero.AddDynamic(this, &AMyTower::HandleDeath);\n}",
+    "ref": "① 组件委托应在 `PostInitializeComponents` 里绑定：那里组件已注册，`FindComponentByClass` 拿到的指针在本 Actor 生命周期内有效；放到 `BeginPlay` 就晚了，组件在 `BeginPlay` 之前可能已经发过事件，早期事件被丢掉。② 绑定前判空：`if (HealthComp) { HealthComp->OnHealthZero.AddDynamic(this, &AMyTower::HandleDeath); }`。③ 对称地在 `EndPlay` 里用同一个函数指针 `RemoveDynamic`，最后调 `Super::EndPlay(Reason)`。",
+    "explain": "原文“④ 真实坑”第 4 条：`BeginPlay` 才绑组件委托，早期事件已被丢掉；需要初始状态就在 PIC 里主动读一次。PIC 一定早于任何 `BeginPlay`，但只保证自身组件就绪，不保证别的 Actor 已初始化。",
+    "src": "深读.md#ue-unit-24"
+  },
+  {
+    "id": "ue4-021",
+    "cat": "ue4",
+    "unit": 25,
+    "unitTitle": "Q25 Actor 的 Tick 是怎么被调用的",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 Actor 的 Tick 调度，下列哪些说法正确？（多选）",
+    "options": [
+      "Tick 由 TickManager 按 TickGroup 分桶派发，组间有明确先后，组内顺序不可依赖",
+      "构造函数里 `bCanEverTick = false`，运行期再 `SetActorTickEnabled(true)` 就能开始 tick",
+      "`TickInterval` 会累积时间后跳帧执行，不是精确定时器",
+      "关掉 Actor tick 后，组件的 `PrimaryComponentTick` 也会一起停",
+      "同组内要保证在另一个对象之后 tick，正确写法是 `AddPrerequisite`"
+    ],
+    "answer": [0, 2, 4],
+    "explain": "`bCanEverTick = false` 时 tick 函数根本没注册，运行期再开也不生效，正确写法是构造函数设 `true` 配 `bStartWithTickEnabled = false`，第 2 项错。组件 tick 是独立注册的 tick 函数，Actor tick 关掉不代表组件不 tick，第 4 项错。`TickInterval` 的实际间隔会被帧长量化，掉帧时抖动明显。",
+    "src": "深读.md#ue-unit-25"
+  },
+  {
+    "id": "ue4-022",
+    "cat": "ue4",
+    "unit": 25,
+    "unitTitle": "Q25 Actor 的 Tick 是怎么被调用的",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的写法有两处错误，请指出并改正：\n\nAMyProjectile::AMyProjectile()\n{\n    PrimaryActorTick.bCanEverTick = false;\n}\n\nvoid AMyProjectile::BeginPlay()\n{\n    Super::BeginPlay();\n    PrimaryActorTick.bCanEverTick = true;   // 想飞行时才开 tick\n    SetActorTickEnabled(true);\n}\n\nvoid AMyProjectile::Tick(float DeltaSeconds)\n{\n    UStaticMeshComponent* M = FindComponentByClass<UStaticMeshComponent>();\n    SetActorLocation(GetActorLocation() + Velocity * DeltaSeconds, true);\n}",
+    "ref": "① 构造函数里应当注册 tick 但先禁用：`PrimaryActorTick.bCanEverTick = true;` 配 `PrimaryActorTick.bStartWithTickEnabled = false;`，运行期只调 `SetActorTickEnabled(true)`。`bCanEverTick = false` 时 tick 函数从未注册，运行期改它也不会补注册。② `Tick` 里不能做 `FindComponentByClass` 这类查找，应在 `BeginPlay` 或 PIC 里缓存组件指针。",
+    "explain": "原文“④ 真实坑”前两条：运行期把 `bCanEverTick` 从 false 改 true，计数恒为 0；`Tick` 里 `FindComponentByClass` 是每帧 O(n) 遍历，属于项目里最典型的隐形热点。降频用 `SetActorTickInterval`，要精确定时改用 `FTimerManager`。",
+    "src": "深读.md#ue-unit-25"
+  },
+  {
+    "id": "ue4-023",
+    "cat": "ue4",
+    "unit": 26,
+    "unitTitle": "Q26 EndPlay 和 Destroy 的区别",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 `Destroy` 与 `EndPlay`，下列哪一项与原文一致？",
+    "options": [
+      "重写 `Destroy()` 就能覆盖 Destroy、切关卡、退出等所有结束路径",
+      "`EEndPlayReason` 包含 `Destroyed`、`LevelTransition`、`EndPlayInEditor`、`RemovedFromWorld`、`Quit`",
+      "`Destroy()` 之后裸指针会立刻变成 `nullptr`，可以直接判空",
+      "`EndPlay` 不保证被调用，所以清理应该分散写在各个业务分支里"
+    ],
+    "answer": [1],
+    "explain": "`Destroy` 只是众多结束路径中的一条，切关卡、PIE 停止、世界销毁都不经过它，清理必须放与 `BeginPlay` 对称、必然触发的 `EndPlay`。`Destroy` 之后对象只是被标记待销毁并从关卡移除，内存要等 GC，裸指针仍非空，判存活要用 `IsValid`。",
+    "src": "深读.md#ue-unit-26"
+  },
+  {
+    "id": "ue4-024",
+    "cat": "ue4",
+    "unit": 26,
+    "unitTitle": "Q26 EndPlay 和 Destroy 的区别",
+    "type": "fill",
+    "diff": 2,
+    "q": "`EEndPlayReason` 中表示“切换关卡”的取值是 ____。",
+    "answer": ["LevelTransition", "EEndPlayReason::LevelTransition"],
+    "explain": "原文列出的五个 Reason 是 `Destroyed`、`LevelTransition`、`EndPlayInEditor`、`RemovedFromWorld`、`Quit`。同一份清理逻辑要能吃下所有 Reason，不能只在 `Destroyed` 分支里做事；实测 GameMode 调 `Destroy` 与 `OpenLevel` 切图，Reason 分别是 `Destroyed` 与 `LevelTransition`。",
+    "src": "深读.md#ue-unit-26"
+  },
+  {
+    "id": "ue4-025",
+    "cat": "ue4",
+    "unit": 27,
+    "unitTitle": "Q27 Component 的生命周期",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于组件的生命周期，下列哪些说法正确？（多选）",
+    "options": [
+      "`OnRegister` 可能多次（换 World、重新注册），一次性订阅不能放在这里",
+      "`InitializeComponent` 受 `bWantsInitializeComponent` 控制，通常只执行一次",
+      "`NewObject` 出来的组件会自动出现在场景里并参与渲染与碰撞",
+      "运行期加场景组件的顺序是 `NewObject` → `SetupAttachment` → `RegisterComponent`",
+      "组件 tick 跟随 Actor tick 的开关，关掉 Actor tick 组件就不再 tick"
+    ],
+    "answer": [0, 1, 3],
+    "explain": "`NewObject` 出来的组件必须 `SetupAttachment` + `RegisterComponent`，否则不渲染、不 tick、不参与碰撞，只占内存，第 3 项错。组件 tick 是独立注册的 `PrimaryComponentTick`，要自己关，第 5 项错。注册解决“接入哪个 World”，初始化解决“数据是否备好”，拆开才能允许组件反复注册而不重复初始化。",
+    "src": "深读.md#ue-unit-27"
+  },
+  {
+    "id": "ue4-026",
+    "cat": "ue4",
+    "unit": 27,
+    "unitTitle": "Q27 Component 的生命周期",
+    "type": "code",
+    "diff": 2,
+    "q": "运行期加组件的顺序写错了，请指出问题并改正：\n\nUStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);\nComp->SetStaticMesh(SomeMesh);\nComp->RegisterComponent();\nComp->SetupAttachment(RootComponent);",
+    "ref": "顺序必须是 `NewObject` → `SetupAttachment`（注册前设层级）→ `RegisterComponent`：\nUStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);\nComp->SetStaticMesh(SomeMesh);\nComp->SetupAttachment(RootComponent);\nComp->RegisterComponent();\n注册后要改父级只能用 `AttachToComponent(..., EAttachmentRule::SnapToTarget, true)`；要让蓝图和序列化看到还需 `AddInstanceComponent`。",
+    "explain": "原文把 `SetupAttachment` 明确标为“只能在注册前”，注册后再调会断言或层级无效。漏掉 `RegisterComponent` 则组件不可见、不 tick、不参与碰撞，日志里毫无提示，这是运行期加组件最常见的坑。",
+    "src": "深读.md#ue-unit-27"
+  },
+  {
+    "id": "ue4-027",
+    "cat": "ue4",
+    "unit": 28,
+    "unitTitle": "Q28 SpawnActor 内部做了什么、什么时候用 Deferred",
+    "type": "single",
+    "diff": 3,
+    "q": "关于 `SpawnActor` 的内部流程与 Deferred，下列哪一项与原文一致？",
+    "options": [
+      "`SpawnActor` 返回后再赋值效果相同，因为对象刚生成",
+      "`SpawnActorDeferred` 期间组件未注册、不在关卡、没有 `BeginPlay`，只适合纯数据赋值",
+      "Deferred 期间 Actor 已完全初始化，可以安全做重叠查询和挂接",
+      "忘记 `FinishSpawning` 只会让 Transform 没设置，其他行为都正常"
+    ],
+    "answer": [1],
+    "explain": "`SpawnActor` 返回时（世界已开始 Play）`BeginPlay` 已经跑完，之后的赋值对初始化逻辑太晚。Deferred 期间对象存在、构造已跑、成员可读写，但组件未注册、不在关卡、没有 `BeginPlay`。忘记 `FinishSpawning` 会让 Actor 停在半成品状态，不可见、不 tick，也不报错。",
+    "src": "深读.md#ue-unit-28"
+  },
+  {
+    "id": "ue4-028",
+    "cat": "ue4",
+    "unit": 28,
+    "unitTitle": "Q28 SpawnActor 内部做了什么、什么时候用 Deferred",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的延迟生成代码漏了一个关键调用，请指出后果并补全：\n\nAEnemy* E = GetWorld()->SpawnActorDeferred<AEnemy>(\n    EnemyClass, SpawnTransform, this, nullptr,\n    ESpawnActorCollisionHandlingMethod::AlwaysSpawn);\nif (E)\n{\n    E->SetLevel(EnemyData.Level);\n    E->SetFaction(EnemyData.Faction);\n}",
+    "ref": "漏了 `E->FinishSpawning(SpawnTransform);`，补在赋值之后：\nif (E)\n{\n    E->SetLevel(EnemyData.Level);\n    E->SetFaction(EnemyData.Faction);\n    E->FinishSpawning(SpawnTransform);\n}\n`FinishSpawning` 才跑 Construction Script、组件初始化和 `BeginPlay`；不调用时 Actor 停在半成品状态，不可见、不 tick、没有 `BeginPlay` 日志，也不报错。",
+    "explain": "Deferred 只在“构造完成”与“初始化完成”之间开一个窗口，注入数据的目的是让 `BeginPlay` 第一次读到的就是最终值，`FinishSpawning` 是收口的一步，最终 Transform 也以它传入的为准。这是原文“④ 真实坑”第 2 条。",
+    "src": "深读.md#ue-unit-28"
+  }
+]

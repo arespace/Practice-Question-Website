@@ -1,0 +1,156 @@
+[
+  {
+    "id": "d3-x27",
+    "cat": "d3",
+    "unit": 27,
+    "unitTitle": "大端序与小端序",
+    "type": "code",
+    "diff": 3,
+    "q": "项目里从网络缓冲区解析字段，代码用下面这个函数直接读取 4 字节序号。请指出它在标准 C++ 中的两处问题，并给出安全的等价实现。\n```cpp\n#include <cstdint>\n\n// pkt[0] 是协议头，序号从 pkt[1] 开始\nstd::uint32_t readSeq(const unsigned char* pkt) {\n    return *reinterpret_cast<const std::uint32_t*>(pkt + 1);\n}\n\nint main() {\n    unsigned char pkt[8] = {0xFF, 0x00, 0x00, 0x00, 0x2A};\n    return static_cast<int>(readSeq(pkt));\n}\n```",
+    "ref": "两处问题：① `pkt + 1` 不满足 `std::uint32_t` 的 4 字节对齐要求，解引用是未对齐访问，属 UB，x86 上只是变慢、部分 ARM 上直接触发对齐异常；② 该地址上并不存在 `std::uint32_t` 对象，用 `uint32_t*` 读取违反严格别名规则，同样 UB。安全写法：\n```cpp\nstd::uint32_t readSeq(const unsigned char* pkt) {\n    std::uint32_t v;\n    std::memcpy(&v, pkt + 1, sizeof v);\n    return v;\n}\n```\n注意 `memcpy` 得到的是本机字节序，若这 4 字节按大端传输还要逐字节左移组装。判分要点：说出未对齐与严格别名两条并改用 `memcpy`。",
+    "explain": "`reinterpret_cast` 只改类型不改地址，编译器据此假定指针对齐并按 4 字节一次读取，硬件对未对齐地址的处理因架构而异，标准则直接把它定为 UB。严格别名规则允许用 `char`/`unsigned char` 观察任意对象，但反向把字节数组当 `uint32_t` 读时并没有对应的对象存在，也同样 UB。`memcpy` 是标准给出的唯一正当“按字节解释对象”的手段，且会被优化成单条指令。易错点：以为 x86 能跑就没问题，或忘了字节序还需另行处理。"
+  },
+  {
+    "id": "d3-x28",
+    "cat": "d3",
+    "unit": 28,
+    "unitTitle": "new/malloc、delete/free 的区别",
+    "type": "code",
+    "diff": 3,
+    "q": "团队成员想用 `new (std::nothrow)` 让创建失败时返回空指针，于是写了下面代码。请说明运行结果、`nothrow` 到底覆盖哪个阶段，并给出能真正避免异常外泄的写法。\n```cpp\n#include <cstdio>\n#include <new>\n#include <stdexcept>\n\nstruct Boom {\n    Boom() { throw std::runtime_error(\"ctor failed\"); }\n};\n\nint main() {\n    Boom* p = new (std::nothrow) Boom();\n    std::printf(\"p == nullptr: %d\\n\", p == nullptr);\n    delete p;\n}\n```",
+    "ref": "一行都不会打印：构造函数抛出的 `std::runtime_error` 直接从 `new` 表达式向外传播，`main` 未捕获，程序以未处理异常终止。`std::nothrow` 只把“分配失败”从抛 `bad_alloc` 改成返回空指针，构造阶段的异常照旧向外传播，因此那句判空永远不会执行。已分配的内存由编译器自动调用匹配的 `operator delete` 回收，不会泄漏。要真正不抛，必须自己接住构造异常：\n```cpp\ntry {\n    auto p = std::make_unique<Boom>();\n} catch (const std::exception&) {\n    // 降级处理\n}\n```\n判分要点：`nothrow` 只管分配、构造异常仍外泄、内存不泄漏。",
+    "explain": "`new T(args)` 分两步：调用分配函数、调用构造函数；`nothrow` 版本只是让分配失败时返回空指针，构造函数并没有被包住。所以“先判空再使用”在这里是无效防护，真正的失败信号仍然是异常。标准保证构造抛异常时已分配的内存会被匹配的释放函数回收，所以这里没有泄漏，风险在于控制流被异常打断。易错点：把 `nothrow` 当成“整条 `new` 表达式不抛”，以及忘记构造异常也需要 `catch`。"
+  },
+  {
+    "id": "d3-x29",
+    "cat": "d3",
+    "unit": 29,
+    "unitTitle": "new 和 delete 为什么必须配对",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的类重载了 `operator new/delete` 并统计次数，构造函数故意抛异常。请写出程序打印的两个数字，并解释为什么这两个数相等。\n```cpp\n#include <cstddef>\n#include <cstdio>\n#include <new>\n#include <stdexcept>\n\nstruct Boom {\n    static inline int allocs = 0, deallocs = 0;\n    static void* operator new(std::size_t n) { ++allocs; return ::operator new(n); }\n    static void operator delete(void* p) noexcept { ++deallocs; ::operator delete(p); }\n    Boom() { throw std::runtime_error(\"ctor failed\"); }\n};\n\nint main() {\n    try {\n        Boom* p = new Boom;   // 构造抛异常，p 不会被赋值\n        delete p;\n    } catch (const std::exception&) {}\n    std::printf(\"%d %d\\n\", Boom::allocs, Boom::deallocs);\n}\n```",
+    "ref": "输出 `1 1`。分配函数被调用一次，所以 `allocs == 1`；构造函数抛异常后，编译器会自动调用与这次 `new` 匹配的 `operator delete` 把内存还回去，所以 `deallocs == 1`。`Boom` 的析构函数没有执行，因为对象从未构造完成——析构与释放是两件事。`delete p` 从未执行（`new` 表达式抛出，`p` 没有被赋值），所以计数不是 0 也不是 2。判分要点：`1 1`，并说明构造失败时释放函数仍被调用、对象析构不执行。",
+    "explain": "`new T` 的顺序是：调用 `operator new` 取得内存，再调用构造函数。构造函数抛出时，标准要求编译器调用匹配的释放函数把内存还回去，这就是 `new` 的异常安全基础；而已经构造完成的部分只有基类与成员，对象自身的析构函数不会执行。易错点：以为构造失败就等于内存泄漏，或以为 `delete p` 会贡献一次释放计数。判分看是否同时给出两个 `1` 与正确原因。"
+  },
+  {
+    "id": "d3-x30",
+    "cat": "d3",
+    "unit": 30,
+    "unitTitle": "堆内存与栈内存",
+    "type": "code",
+    "diff": 2,
+    "q": "下面函数在 Windows 默认线程栈（约 1 MB）上运行会出问题，在 Linux（默认常见 8 MB）上却可能正常。请说明运行现象、原因，以及最小改动方案。\n```cpp\n#include <cstdio>\n\nvoid risky() {\n    int big[1 << 18] = {};        // 约 1 MB 的局部数组\n    std::printf(\"%d\\n\", big[0]);\n}\n\nint main() {\n    risky();\n}\n```",
+    "ref": "Windows 上函数一进入就栈溢出（典型 `0xC00000FD` / stack overflow），进程被终止，什么都没打印；Linux 上因默认栈更大通常能跑完。原因：局部数组占用的空间在编译期就计入栈帧，进入函数时栈指针要一次下移约 1 MB，直接越过 Windows 默认的 1 MB 线程栈上限。最小改动是把元素移到堆上：\n```cpp\n#include <vector>\nvoid safe() {\n    std::vector<int> big(1 << 18);   // 对象在栈，元素在堆\n    std::printf(\"%d\\n\", big[0]);\n}\n```\n或用 `std::make_unique<int[]>`。判分要点：栈帧大小编译期确定、默认栈 1 MB、改用堆分配。",
+    "explain": "栈分配只是挪栈指针，代价低但容量由线程栈上限决定，且栈帧大小必须编译期可知，所以局部数组的体积会直接体现在栈指针的移动量上。Windows 默认线程栈约 1 MB，一个 1 MB 的局部数组几乎必然越界；Linux 常见 8 MB，同一份代码就看不出问题，这正是跨平台移植时的典型翻车点。易错点：以为“没有递归就不会爆栈”，以及忘记栈大小是每个线程各自的。"
+  },
+  {
+    "id": "d3-x31",
+    "cat": "d3",
+    "unit": 31,
+    "unitTitle": "尾递归优化与栈内存管理",
+    "type": "code",
+    "diff": 3,
+    "q": "下面三个函数都想用来做深递归累加，只有一个是严格的尾调用。请指出哪个是尾调用，并说明另外两个为什么不是（其中一个看起来已经是尾递归）。\n```cpp\n#include <string>\n\nlong long a(int n, long long acc) {\n    return n == 0 ? acc : a(n - 1, acc + n);\n}\n\nlong long b(int n) {\n    return n == 0 ? 0 : 1 + b(n - 1);\n}\n\nlong long c(int n, long long acc) {\n    std::string log = \"n=\" + std::to_string(n);\n    return n == 0 ? acc : c(n - 1, acc + n);\n}\n```",
+    "ref": "只有 `a` 是尾调用：递归调用直接构成 `return` 的全部表达式，返回后没有任何待办，当前栈帧可以复用。`b` 不是：调用返回后还要做 `1 +`，必须保留当前栈帧。`c` 形式上已是尾递归，但作用域里有带非平凡析构的 `std::string`，它的析构必须在被调者返回之后执行，栈帧同样不能提前释放，通常无法被优化成跳转。判分要点：`a` 是；`b` 因返回值要继续参与运算；`c` 因局部对象析构。另需说明标准并不保证 TCO，`-O0` 下三者栈深都是 O(n)。",
+    "explain": "尾调用的判定只看“调用是否为返回前的最后一个动作”，与是否递归无关；任何返回后的运算、类型转换、局部对象析构都会迫使当前帧保留。C++ 特有的阻碍正是析构：`c` 里 `log` 的析构要等 `c(...)` 返回后执行，编译器不能把调用改成跳转。即使完全符合条件，标准也只把 TCO 当作 as-if 规则允许的优化，`-O0` 下依然是 `call` 而不是 `jmp`，所以常量栈深要靠迭代或显式栈保证。"
+  },
+  {
+    "id": "d3-x32",
+    "cat": "d3",
+    "unit": 32,
+    "unitTitle": "memcpy、memmove、strcpy 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "有人写了一个通用的结构体复制函数，运行后发现最后一个字段没有被正确复制（平台为 64 位）。请指出错误所在、解释原因，并给出正确写法。\n```cpp\n#include <cstdint>\n#include <cstring>\n\nstruct Packet {\n    std::uint32_t seq;\n    std::uint32_t len;\n    std::uint64_t ts;\n};\n\nvoid clone(Packet* dst, const Packet* src) {\n    std::memcpy(dst, src, sizeof(src));\n}\n```",
+    "ref": "`sizeof(src)` 求的是指针的大小，64 位平台上为 8，而 `sizeof(Packet)` 是 16，于是只复制了 `seq` 和 `len`，`ts` 保持目标缓冲区原有的脏值。正确写法是把长度写成被指对象的大小：\n```cpp\nvoid clone(Packet* dst, const Packet* src) {\n    std::memcpy(dst, src, sizeof *dst);   // 或 sizeof(Packet)\n}\n```\n更稳妥的是直接 `*dst = *src;` 让编译器做成员赋值；若结构体含非平凡成员则不能 `memcpy`，应先 `static_assert(std::is_trivially_copyable_v<Packet>)`。判分要点：区分 `sizeof(指针)` 与 `sizeof(结构体)`。",
+    "explain": "数组做形参时会退化成指针，指针做 `sizeof` 得到的永远是指针宽度，这是 C/C++ 里最经典的“长度算错”来源；同样的代码在 32 位平台上只复制 4 字节，错得更离谱。`memcpy` 既不检查长度也不报告错误，复制不足只会静默留下脏数据，所以这类 bug 往往在很晚才暴露。易错点：把 `sizeof` 用在指针上、用 `sizeof(dst)` 这类写法时又忘了 `dst` 也可能是指针。"
+  },
+  {
+    "id": "d3-x33",
+    "cat": "d3",
+    "unit": 33,
+    "unitTitle": "深拷贝、浅拷贝与标准拷贝构造",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的拷贝赋值运算符在 `b = b;` 时会悄悄丢掉原有数据。请写出最终打印结果，说明根因，并给出同时解决自赋值与异常安全的实现。\n```cpp\n#include <algorithm>\n#include <cstddef>\n#include <cstdio>\nclass IntBuf {\npublic:\n    explicit IntBuf(std::size_t n = 0) : n_(n), p_(n ? new int[n]() : nullptr) {}\n    ~IntBuf() { delete[] p_; }\n    IntBuf& operator=(const IntBuf& o) {\n        delete[] p_;\n        n_ = o.n_;\n        p_ = n_ ? new int[n_]() : nullptr;\n        std::copy(o.p_, o.p_ + n_, p_);   // 若 o 就是 *this\n        return *this;\n    }\n    int* data() { return p_; }\nprivate:\n    std::size_t n_;\n    int* p_;\n};\nint main() {\n    IntBuf b(3);\n    b.data()[0] = 7; b.data()[1] = 8;\n    b = b;\n    std::printf(\"%d %d\\n\", b.data()[0], b.data()[1]);\n}\n```",
+    "ref": "输出 `0 0`。`operator=` 先 `delete[] p_` 再 `p_ = new int[n_]()`；由于 `o` 就是 `*this`，`o.p_` 与 `p_` 是同一成员，此时都指向刚分配、被值初始化为全 0 的新块，`std::copy` 于是把 0 拷回自己，原来的 `7 8` 已随旧内存消失。修法一：入口加 `if (this == &o) return *this;`；修法二（更好）copy-and-swap：\n```cpp\nIntBuf& operator=(IntBuf o) { std::swap(n_, o.n_); std::swap(p_, o.p_); return *this; }\n```\n此外现在的写法若 `new` 抛异常，`p_` 会悬垂，析构时二次释放。判分要点：`0 0`、源与目标同一对象、自检或 copy-and-swap。",
+    "explain": "拷贝赋值要做三件事：释放旧资源、复制新资源、返回自身；顺序安排不当就会在自赋值时读到已被自己重置的数据。本例新块被值初始化成全 0，症状是“静默清零”而不是崩溃，排查难度更高。copy-and-swap 把“复制”和“提交”分开：副本构造失败时原对象完全不变，天然满足强异常安全，也顺带覆盖了自赋值。易错点：先释放再分配、以为自赋值很少见可以不处理。"
+  },
+  {
+    "id": "d3-x34",
+    "cat": "d3",
+    "unit": 34,
+    "unitTitle": "C++ 内存分区",
+    "type": "code",
+    "diff": 2,
+    "q": "下面代码编译通过，但运行时进程直接崩溃。请说明崩溃发生在哪一句、为什么，这属于哪类未定义行为，并给出两种正确的替代写法。\n```cpp\n#include <cstdio>\n#include <cstring>\n\nint main() {\n    char* p = const_cast<char*>(\"hello\");\n    std::printf(\"%s %zu\\n\", p, std::strlen(p));\n    p[0] = 'H';\n    std::puts(p);\n}\n```",
+    "ref": "崩溃发生在 `p[0] = 'H';`：进程收到段错误（Linux `SIGSEGV` / Windows 访问冲突），`puts` 根本执行不到。字符串字面量存放在只读数据段（常见 `.rodata`），该页被标记为不可写；`const_cast` 只去掉类型系统里的 `const`，不改变内存权限，所以这是一次写只读内存的未定义行为，常见表现就是崩溃。正确写法：\n```cpp\nchar buf[] = \"hello\";   // 栈上的可写副本\nbuf[0] = 'H';\n\nstd::string s = \"hello\";\ns[0] = 'H';\n```\n判分要点：只读数据段、`const_cast` 不改内存属性、属 UB。",
+    "explain": "C++11 起字面量的类型是 `const char[N]`，用 `char*` 接收需要 `const_cast`，编译期能过，但内存可写性由内核页表决定。标准把修改字面量定为 UB，实现可以任选后果，主流平台统一表现为段错误；相同内容的字面量还可能被合并，改一处会波及另一处。易错点：把 `const_cast` 当成“解除只读”，或认为“没崩溃就说明写法没问题”。"
+  },
+  {
+    "id": "d3-x35",
+    "cat": "d3",
+    "unit": 35,
+    "unitTitle": "智能指针的种类与所有权",
+    "type": "code",
+    "diff": 3,
+    "q": "下面代码用同一个裸指针构造了两个 `shared_ptr`。请说明作用域结束时实际会发生什么，修复后应该怎么写，并解释它为什么比裸指针更危险。\n```cpp\n#include <cstdio>\n#include <memory>\n\nstruct Node {\n    ~Node() { std::puts(\"~Node\"); }\n};\n\nint main() {\n    Node* raw = new Node;\n    std::shared_ptr<Node> a(raw);\n    std::shared_ptr<Node> b(raw);\n}\n```",
+    "ref": "`~Node` 会打印两次，同一地址被释放两次，属未定义行为，ASan 会报 `double-free`。原因：`shared_ptr` 从裸指针构造时会新建一个控制块，这里两次构造产生两个互不知情的控制块，各自计数从 1 减到 0 时都认为自己是唯一所有者，于是各 `delete` 一次 `raw`。修复：只从一个所有者出发复制，或统一用 `make_shared`：\n```cpp\nauto a = std::make_shared<Node>();\nauto b = a;               // 共享同一控制块\n```\n判分要点：两个独立控制块、两次析构、double-free。",
+    "explain": "`shared_ptr` 的引用计数存在控制块里，而不是对象里；只要用同一个裸指针分别构造，就会生成两个控制块，计数各算各的。比裸指针更危险的地方在于“看起来已经托管”，编译器不会报警，泄漏或双重释放会静默发生。同样的坑还出现在成员函数里写 `shared_ptr<T>(this)`，正确做法是继承 `enable_shared_from_this`。易错点：以为“用了智能指针就不会重复释放”。"
+  },
+  {
+    "id": "d3-x36",
+    "cat": "d3",
+    "unit": 36,
+    "unitTitle": "全局变量的存放与头文件定义问题",
+    "type": "code",
+    "diff": 3,
+    "q": "项目把全局配置拆成两个翻译单元，下面代码在部分构建下打印 `[]`。请说明为什么输出不可靠、标准对此的规定，并给出修复方案。\n```cpp\n// config.cpp\n#include <string>\nstd::string g_name = loadName();     // 动态初始化\n\n// user.cpp\n#include <cstdio>\n#include <string>\nextern std::string g_name;\nstruct User {\n    User() { std::printf(\"[%s]\\n\", g_name.c_str()); }\n};\nUser g_user;                          // 构造时读取 g_name\n```",
+    "ref": "两个 TU 的全局对象都要做动态初始化，而不同 TU 之间的初始化顺序标准不作规定，链接顺序、目标文件顺序都可能决定谁先。若 `g_user` 先构造，`g_name` 尚未开始生命周期（常见表现是打印 `[]`），严格说这是未定义行为。修复：改成函数内静态，首次使用时初始化：\n```cpp\nconst std::string& name() {\n    static const std::string value = loadName();\n    return value;\n}\n```\n或把初始化收敛到 `main` 里显式调用。判分要点：跨 TU 动态初始化顺序未指定、函数内静态可解决。",
+    "explain": "同一个 TU 内全局对象按声明顺序初始化，跨 TU 的顺序则是实现定义的，这就是“静态初始化顺序灾难”，只在多个 `.cpp` 一起链接时才暴露。函数内静态对象的初始化推迟到第一次执行到声明处，且 C++11 起保证线程安全，于是依赖关系变成调用顺序，不再受链接顺序影响。易错点：以为“定义写在上面的文件就会先初始化”；另外像 `int g = 42;` 属于常量初始化，在任何动态初始化之前完成，不受此问题影响。"
+  },
+  {
+    "id": "d3-x37",
+    "cat": "d3",
+    "unit": 37,
+    "unitTitle": "返回值优化 RVO 与 NRVO",
+    "type": "code",
+    "diff": 3,
+    "q": "下面两个工厂函数都返回具名局部变量，用 `-fno-elide-constructors` 编译后输出并不相同。请写出 `f()` 与 `g()` 各自的输出，并解释差异原因。\n```cpp\n#include <cstdio>\n\nstruct W {\n    W() { std::puts(\"ctor\"); }\n    W(const W&) { std::puts(\"copy\"); }\n    W(W&&) noexcept { std::puts(\"move\"); }\n};\n\nW f() { const W w; return w; }\nW g() { W w; return w; }\n\nint main() {\n    W a = f();\n    W b = g();\n}\n```",
+    "ref": "`f()` 输出 `ctor` 后跟 `copy`；`g()` 输出 `ctor` 后跟 `move`。关闭复制省略后 NRVO 失效，返回值要走常规的“构造临时量再移动/拷贝”路径；`f` 里的 `w` 是 `const` 对象，匹配不到 `W(W&&)`，只能调用拷贝构造；`g` 里的 `w` 是非 `const` 具名对象，返回时按隐式移动处理。默认优化下 NRVO 通常生效，两者都只剩一行 `ctor`。判分要点：`copy` 与 `move` 的差别来自 `const` 让移动构造不可用。",
+    "explain": "`return w;` 中若 `w` 是非 `const` 的局部对象，重载决议优先选择移动构造（返回时的隐式移动是标准明确规定的），所以即使 NRVO 被关闭，多付出的也只是移动。一旦对象声明为 `const`，`W&&` 无法绑定，路径退化为拷贝——这就是“返回 `const` 局部变量是负优化”的来源。易错点：以为 `const` 只影响能否修改，实际它还会改变返回路径的语义。"
+  },
+  {
+    "id": "d3-x38",
+    "cat": "d3",
+    "unit": 38,
+    "unitTitle": "shared_from_this 的作用与限制",
+    "type": "code",
+    "diff": 2,
+    "q": "下面代码在构造期间调用 `shared_from_this()`，运行结果与预期不符。请说明实际结果、背后缺失的是哪一步关联，并给出正确的使用方式。\n```cpp\n#include <cstdio>\n#include <memory>\n\nstruct S : std::enable_shared_from_this<S> {\n    S() {\n        auto self = shared_from_this();   // 构造期间\n        std::printf(\"in ctor %ld\\n\", self.use_count());\n    }\n};\n\nint main() {\n    try {\n        auto s = std::make_shared<S>();\n    } catch (const std::bad_weak_ptr&) {\n        std::printf(\"bad_weak_ptr\\n\");\n    }\n}\n```",
+    "ref": "只会打印 `bad_weak_ptr`。`enable_shared_from_this` 内部持有一个 `weak_ptr`，它要等第一个 `shared_ptr` 接管对象、控制块建立之后才会被关联，而这一步发生在构造函数执行完之后；构造期间 `shared_from_this()` 拿不到控制块，C++17 起抛 `std::bad_weak_ptr`（此前是未定义行为）。正确做法是两段式：构造函数只做初始化，等 `make_shared` 返回后再由工厂或 `init()` 注册回调：\n```cpp\nauto s = std::make_shared<S>();\ns->start();      // 这里再调用 shared_from_this()\n```\n判分要点：`bad_weak_ptr`、控制块尚未关联、改到构造之后调用。",
+    "explain": "对象在构造期间还没有被任何 `shared_ptr` 拥有，控制块可能尚不存在，所以“把 `this` 升格成 `shared_ptr`”没有依据。同理析构期间强引用计数已归零，也不能调用；栈对象和 `unique_ptr` 管理的对象则永远没有控制块。若确实要在初始化阶段保存自身引用，只能改成构造后显式初始化，或由静态工厂返回 `shared_ptr` 后再建立关联。易错点：以为只要继承了模板就能随时调用。"
+  },
+  {
+    "id": "d3-x39",
+    "cat": "d3",
+    "unit": 39,
+    "unitTitle": "内存对齐与对象布局",
+    "type": "code",
+    "diff": 2,
+    "q": "下面程序在 x86-64（LP64）平台上运行。请写出 `printf` 打印的四个值，并解释 `A` 比 `B` 多出的那几个字节具体来自哪里。\n```cpp\n#include <cstddef>\n#include <cstdio>\n\nstruct A { char c; int i; char d; };\nstruct B { int i; char c; char d; };\n\nint main() {\n    std::printf(\"%zu %zu %zu %zu\\n\",\n                sizeof(A), offsetof(A, i), offsetof(A, d),\n                sizeof(B));\n}\n```",
+    "ref": "输出 `12 4 8 8`。`A` 的布局：`c` 在偏移 0，`int i` 要求 4 字节对齐，所以偏移 1~3 是填充，`i` 落在 4；`d` 紧随其后落在 8；结构体整体对齐到 4，末尾再补 3 字节，总计 12。`B` 把 `int` 放在最前、两个 `char` 紧随其后，只有尾部 2 字节填充，总计 8。两者差的 4 字节全部来自成员顺序造成的内部与尾部 padding。判分要点：`12 4 8 8`，并能指出填充位置与尾部补齐。",
+    "explain": "结构体成员按声明顺序摆放，每个成员必须落在自身对齐要求的整数倍上，因此 `char` 之后的 `int` 前会插 3 字节 padding；结构体总大小还要向上取整到最大成员对齐（此处 4）的倍数，所以尾部再补 3 字节。按 `alignof` 从大到小重排成员几乎总能免费省下这些字节。易错点：只累加成员大小、忘记尾部补齐；另外具体数值依赖 ABI，标准只要求不小于成员之和，跨平台协议不能依赖 `sizeof`。"
+  },
+  {
+    "id": "d3-x40",
+    "cat": "d3",
+    "unit": 40,
+    "unitTitle": "RAII 与异常安全",
+    "type": "code",
+    "diff": 3,
+    "q": "下面 `Obj` 的构造函数故意抛异常，两个 `Logger` 成员都已构造完成。请写出程序完整输出（包括顺序），并说明 `~Obj` 为什么没有出现在输出里。\n```cpp\n#include <cstdio>\n#include <stdexcept>\n#include <string>\n\nstruct Logger {\n    std::string name;\n    explicit Logger(const char* n) : name(n) { std::printf(\"+%s \", name.c_str()); }\n    ~Logger() { std::printf(\"-%s \", name.c_str()); }\n};\n\nstruct Obj {\n    Logger a{\"a\"};\n    Logger b{\"b\"};\n    Obj() { throw std::runtime_error(\"boom\"); }\n    ~Obj() { std::printf(\"-Obj \"); }\n};\n\nint main() {\n    try { Obj o; }\n    catch (const std::exception&) { std::printf(\"caught \"); }\n}\n```",
+    "ref": "输出为 `+a +b -b -a caught `。`a`、`b` 按声明顺序构造，打印 `+a +b`；随后构造函数体抛异常。此时 `Obj` 从未构造完成，所以 `~Obj` 不执行；但已经完整构造的两个成员会按构造的逆序析构，依次打印 `-b -a`；异常被 `catch` 捕获后打印 `caught`。判分要点：成员逆序析构、对象自身析构不执行。顺带说明：若资源放在裸指针成员里（`p_ = new T;` 之后抛异常），这块内存就泄漏了，改成 `std::unique_ptr` 成员即可自动回收。",
+    "explain": "C++ 的构造顺序是“基类 → 成员（按声明顺序）→ 构造函数体”，任何一步抛出，已完成的部分按相反顺序析构，未完成的部分不析构，对象自身的析构函数从不参与。这正是 RAII 必须把资源交给成员对象管理的理由：成员析构有保证，裸指针成员没有。易错点：以为构造失败什么都不析构（其实成员会析构），或以为 `~Obj` 会执行（真执行就会去操作一个未完成的对象）。"
+  }
+]

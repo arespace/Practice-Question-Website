@@ -1,0 +1,145 @@
+[
+  {
+    "id": "ue9-x56",
+    "cat": "ue9",
+    "unit": 56,
+    "unitTitle": "Q56 UE 的模块怎么划分？",
+    "type": "code",
+    "diff": 3,
+    "q": "某工程把战斗类型放在 MyCombat 模块、技能逻辑放在 MySkill 模块，两个 Build.cs 互相引用。UBT 在生成工程文件阶段直接失败。请指出错误类型与根因，并给出不合并两个模块的修改方案：\n\n```cpp\n// MyCombat.Build.cs\npublic class MyCombat : ModuleRules\n{\n    public MyCombat(ReadOnlyTargetRules Target) : base(Target)\n    {\n        PublicDependencyModuleNames.AddRange(\n            new string[] { \"Core\", \"CoreUObject\", \"Engine\", \"MySkill\" });\n    }\n}\n\n// MySkill.Build.cs\npublic class MySkill : ModuleRules\n{\n    public MySkill(ReadOnlyTargetRules Target) : base(Target)\n    {\n        PublicDependencyModuleNames.AddRange(\n            new string[] { \"Core\", \"CoreUObject\", \"Engine\", \"MyCombat\" });\n    }\n}\n```",
+    "ref": "UBT 在构建前解析 Build.cs 建立模块依赖图时检测到环：MyCombat → MySkill → MyCombat，报 `Circular dependency detected`（模块依赖必须是有向无环图），此时连生成工程文件都过不去，还轮不到编译。修法是把两边共用的类型（如 UMyDamageType、公共枚举）下沉成第三个更低层的模块，例如 MyCombatCore，让 MyCombat 与 MySkill 都只依赖它；或者让一方只保留前置声明与接口，把反向调用改成委托或事件回调。不能靠改成 Private 依赖、打开 Unity Build 或删掉一边依赖绕过——前者只是换了一条边，环依然存在，后者会在编译期报找不到头或符号。",
+    "explain": "UBT 在生成阶段先按 Build.cs 建立模块依赖图，成环时直接拒绝，这是声明期错误，没有 C#### 编译器错误码。常见误判是把它当成“两个头文件互相 include”，真正的问题在模块级依赖方向。判分点：能否说出 DAG 要求与报错发生在生成阶段，并给出“公共部分下沉成更低层模块”这一结构性修法；只答“把两个模块合并”属于放弃模块边界，不算正解。"
+  },
+  {
+    "id": "ue9-x57",
+    "cat": "ue9",
+    "unit": 57,
+    "unitTitle": "Q57 什么是 IWYU？为什么能加快编译？",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的头文件想用前置声明减少编译依赖，但改动后整个模块编译失败。请指出出错的行、错误类型，并给出两种符合 UE5 的修法：\n\n```cpp\n// MySpawnConfig.h\n#pragma once\n#include \"CoreMinimal.h\"\n\nclass FMySpawnEntry;   // 只有前置声明\n\nstruct FMySpawnConfig\n{\n    FMySpawnEntry DefaultEntry;        // 按值成员\n    TArray<FMySpawnEntry> Entries;     // 容器元素\n    FMySpawnEntry* Override = nullptr; // 指针成员\n};\n```",
+    "ref": "出错的是 `FMySpawnEntry DefaultEntry;` 与 `TArray<FMySpawnEntry> Entries;`：编译器报 C2079 `uses undefined struct`（incomplete type），因为按值成员和容器都要完整定义来计算布局、尺寸与析构；只有 `FMySpawnEntry* Override` 可以只靠前置声明。修法一：在头文件里 `#include \"MySpawnEntry.h\"`（定义该类型的最小头），让所有使用方拿到完整类型；修法二：把头文件成员改成指针或 `TObjectPtr`，把 include 挪到 cpp，在 cpp 里创建和访问字段。若该成员还要参与反射（UPROPERTY），也必须 include 定义并满足 UHT 要求，前置声明不够。",
+    "explain": "前置声明只引入名字、不引入定义，因此只适用于指针、引用参数与指针成员；继承基类、按值成员、模板或容器实参、`sizeof`、调用成员函数都需要完整定义。`TArray<T>` 成员会实例化模板并要求 `T` 可析构。易错点是把“本机能编过”当正确：Unity Build 可能把别的 cpp 的头串进来，关 Unity 或单文件编译才暴露。判分点：指出错误类型、给出两种修法并说明各自适用边界。"
+  },
+  {
+    "id": "ue9-x58",
+    "cat": "ue9",
+    "unit": 58,
+    "unitTitle": "Q58 编译时间太长怎么优化？",
+    "type": "code",
+    "diff": 3,
+    "q": "开发者给类新增了一个 UPROPERTY 字段后直接按 Live Coding 热重载，编辑器里新字段始终是默认值、行为也与源码不一致。下面是被改的代码片段，请解释原因并给出正确做法：\n\n```cpp\n// AMyTower.h\nUCLASS()\nclass MYGAME_API AMyTower : public AActor\n{\n    GENERATED_BODY()\npublic:\n    UPROPERTY(EditAnywhere, Category = \"Tower\")\n    float FireInterval = 1.0f;\n\n    UPROPERTY(EditAnywhere, Category = \"Tower\")   // 新增字段\n    int32 BurstCount = 3;\n};\n\n// AMyTower.cpp\nvoid AMyTower::FireOnce()\n{\n    for (int32 i = 0; i < BurstCount; ++i) { /* 发射 */ }\n}\n```",
+    "ref": "Live Coding 只适合“小改函数体”的秒级验证：它把新编译出的补丁注入运行中的进程，替换函数代码，但改不了反射结构与类成员布局。新增 UPROPERTY 会改变 UClass 的反射数据、对象尺寸与序列化布局，补丁无法安全应用，常见表现是热重载看似成功，但新字段在细节面板里不出现、读到的是默认值，或者行为与源码不一致。正确做法是停止 Live Coding，做一次完整编译并重启编辑器（打包配置同样要完整构建），再验证新字段；凡是增删 UPROPERTY/UFUNCTION、改变 UCLASS 继承或成员顺序，都必须走完整编译。",
+    "explain": "Live Coding 的边界来自它替换的是函数机器码，而不是重建 UClass 的反射元数据；对象内存布局在 CDO 与实例创建时就已确定。把“加字段、加反射宏”当成热重载适用范围，会得到源码与运行时不一致的假象，且不会立刻报错，排查成本极高。判分点：区分“函数体改动”与“反射/布局改动”，给出完整编译加重启编辑器的路径，并指出这种静默不一致比编译失败更危险。"
+  },
+  {
+    "id": "ue9-x59",
+    "cat": "ue9",
+    "unit": 59,
+    "unitTitle": "Q59 常见编译错误怎么定位？",
+    "type": "code",
+    "diff": 2,
+    "q": "有人把类 AMyThing 改名为 AMyActor，但文件名仍是 MyThing.h，头文件里的 include 改成了下面这样。请指出构建在哪个阶段失败、报什么错，以及正确改法：\n\n```cpp\n// MyThing.h\n#pragma once\n#include \"CoreMinimal.h\"\n#include \"GameFramework/Actor.h\"\n#include \"MyActor.generated.h\"     // 按新类名改的 include\n\nUCLASS()\nclass MYGAME_API AMyActor : public AActor\n{\n    GENERATED_BODY()\npublic:\n    UPROPERTY(EditAnywhere)\n    float Speed = 100.f;\n};\n```",
+    "ref": "UHT 按“头文件名”生成 `<文件名>.generated.h`，与类名无关：文件是 MyThing.h，生成的就是 MyThing.generated.h。所以 `#include \"MyActor.generated.h\"` 找不到文件，构建在编译阶段报 C1083 `Cannot open include file: 'MyActor.generated.h'`（Clang 下是 `fatal error: ... file not found`），紧接着 GENERATED_BODY 展开失败会连带一屏错误。这不是链接错误，没有 LNK 符号名。修法：把 .h 和 .cpp 一起改名为 MyActor.h/.cpp，同步其他文件的 include 并重新生成工程文件；或者把 include 改回 MyThing.generated.h。不要只改类名。",
+    "explain": "generated.h 的名字跟文件走、不跟类走，这是改名时最容易漏的一处；报错常指向 generated.h 内部或“未知宏”，根因却在 include 的文件名。判阶段要看日志：这里是编译器报文件找不到（带 C####），UHT 可能已经成功。类名、文件名、include 与其他 cpp 的引用必须一起改，否则残留旧名会在链接或类注册阶段再炸一次；改完重新生成工程文件再构建。"
+  },
+  {
+    "id": "ue9-x60",
+    "cat": "ue9",
+    "unit": 60,
+    "unitTitle": "Q60 UHT 报错和普通编译报错怎么区分？",
+    "type": "code",
+    "diff": 3,
+    "q": "下面这个类先写成员、再把 GENERATED_BODY() 放到后面，构建日志第一行是 UnrealHeaderTool 报错。请判断错误阶段与根因，并解释为什么后面还有一大片 C++ 报错：\n\n```cpp\nUCLASS()\nclass MYGAME_API AMyPickup : public AActor\n{\npublic:\n    UPROPERTY(EditAnywhere, Category = \"Pickup\")\n    float RespawnTime = 5.f;\n\n    GENERATED_BODY()      // 放到了成员之后\n\n    virtual void BeginPlay() override;\n};\n```",
+    "ref": "这是 UHT 阶段错误：GENERATED_BODY() 必须紧跟在类体开头（`class ... {` 之后第一行），UHT 扫到它在成员之后会报宏位置错误，日志带 `UnrealHeaderTool` / `LogCompile` 前缀，且没有 MSVC 的 `C####` 错误码。UHT 失败就不会生成 AMyPickup.generated.h，于是 GENERATED_BODY 在编译器眼里是未定义标识符，类体展开失败，所有引用该类的 cpp 一起报未知类型与未知成员，形成一大片连锁错误。修法：把 GENERATED_BODY() 移到类体第一行，其余声明保持在后；只修这一条后重建，不要逐条去改后续错误。",
+    "explain": "UHT 在编译器之前单独扫描头文件，只按自己的规则校验反射宏与位置；GENERATED_BODY 展开所依赖的宏和反射代码都来自它生成的 generated.h。所以“先出现 UHT 错误、后出现成片编译错误”是缺生成代码的典型形态，后面的报错是症状而非病因。判分点：从日志前缀与有无错误码判断阶段、说出宏必须位于类体首行的规则，并坚持“只修第一条再重编”。"
+  },
+  {
+    "id": "ue9-x61",
+    "cat": "ue9",
+    "unit": 61,
+    "unitTitle": "Q61 API 宏是做什么的？",
+    "type": "code",
+    "diff": 3,
+    "q": "下面这个模板类被加上了 API 宏并放在公共头里，两个模块都使用它，构建时出现重复符号告警或链接错误。请指出问题与正确写法：\n\n```cpp\n// MyQueue.h\n#pragma once\n#include \"CoreMinimal.h\"\n\ntemplate<typename T>\nclass MYGAME_API TMyQueue\n{\npublic:\n    void Push(const T& Item) { Items.Add(Item); }\n    T Pop() { return Items.Pop(); }\nprivate:\n    TArray<T> Items;\n};\n\n// A.cpp 与 B.cpp 都写了：\n// TMyQueue<int32> Queue;\n```",
+    "ref": "模板在使用方实例化：TMyQueue<int32> 的代码会在 A.cpp、B.cpp 里各自生成一份，本来就没有需要跨二进制导入的唯一符号。给整个模板类加 MYGAME_API 不会让它“只导出一份”，反而可能在多个翻译单元或跨模块实例化之间产生重复符号或导出冲突。正确写法是去掉模板上的 API 宏，把完整定义留在头文件里，让每个使用方自行实例化；确实需要收敛实例化时，可在某个 cpp 里写显式实例化 `template class TMyQueue<int32>;`，并按普通类型处理。只有非模板类才写 `class MYGAME_API UMyClass`。",
+    "explain": "API 宏的语义是导出/导入一个具体符号，而模板本身在编译期按实参生成代码，实例化点在使用方，跨模块边界上没有唯一符号可导。易错点是把“类的规则”直接套到模板上，或在头里加宏以为能减少实例化。判分点：说出模板在使用方实例化、宏应去掉、定义留头文件，并能提到显式实例化是另一种收敛手段；类、自由函数、全局变量的宏位置规则仍适用于非模板实体。"
+  },
+  {
+    "id": "ue9-x62",
+    "cat": "ue9",
+    "unit": 62,
+    "unitTitle": "Q62 插件和模块有什么区别？",
+    "type": "code",
+    "diff": 3,
+    "q": "插件的 .uplugin 把 Runtime 模块的 LoadingPhase 设成了 PostConfigInit，模块启动后拿不到世界、甚至启动崩溃。请指出原因并给出修正：\n\n```cpp\n// MyHealthUI.uplugin（节选，加载阶段被设为 PostConfigInit）\n// { \"Name\": \"MyHealthUI\", \"Type\": \"Runtime\", \"LoadingPhase\": \"PostConfigInit\" }\n\nvoid FMyHealthUIModule::StartupModule()\n{\n    UWorld* World = nullptr;\n    if (GEngine && GEngine->GetWorldContexts().Num() > 0)\n    {\n        World = GEngine->GetWorldContexts()[0].World();\n    }\n    if (World)\n    {\n        // 注册血条管理器\n    }\n}\n```",
+    "ref": "PostConfigInit 是插件加载阶段里很早的一档，此时引擎对象与世界上下文还没建立：`GEngine` 可能为空、`GetWorldContexts()` 为空，World 永远拿不到，注册逻辑静默失效；若不判空直接解引用就会启动崩溃。修正：把该 Runtime 模块的 LoadingPhase 改为 `Default`（常规运行时）或 `PostEngineInit`（依赖引擎子系统），并把初始化时机从 StartupModule 推迟到世界可用之后，例如 UGameInstanceSubsystem::Initialize、FWorldDelegates::OnPostWorldInitialization 回调；StartupModule 里只做与引擎对象无关的登记（注册委托、注册模块接口），访问前先判 GEngine 与 World 是否为空。",
+    "explain": "加载阶段是插件特有的控制点，选早选晚都有代价：太早拿不到 World/GameInstance，太晚别人已初始化完、注入不进来。StartupModule 只适合做与引擎对象无关的登记，依赖世界的逻辑必须挂到世界初始化之后。判分点：说出 PostConfigInit 与 Default/PostEngineInit 的先后、指出 GEngine 可能为空，并给出“延后到世界可用”的具体落点，而不是只加判空让功能继续不生效。"
+  },
+  {
+    "id": "ue10-x63",
+    "cat": "ue10",
+    "unit": 63,
+    "unitTitle": "Q63 空指针和无效对象怎么判？",
+    "type": "code",
+    "diff": 3,
+    "q": "PIE 结束或关卡切换时，下面这个定时回调仍在跑，日志里出现一批对已销毁 Actor 的无效调用。请指出还缺哪一层判断、为什么，并给出修正要点：\n\n```cpp\nvoid AMyTurret::BeginPlay()\n{\n    Super::BeginPlay();\n    GetWorld()->GetTimerManager().SetTimer(\n        PollTimer, this, &AMyTurret::PollTarget, 0.5f, true);\n}\n\nvoid AMyTurret::PollTarget()\n{\n    AActor* Target = CachedTarget.Get();\n    if (!IsValid(Target) || Target->IsActorBeingDestroyed())\n    {\n        CachedTarget.Reset();\n        return;\n    }\n    if (MyMesh && MyMesh->IsVisible())\n    {\n        Target->SetActorLocation(GetActorLocation());\n    }\n}\n```",
+    "ref": "还缺“世界是否正在关闭”这一层。PIE 结束、关卡切换时 `World->bIsTearingDown` 为真，Actor 的 EndPlay 已经在跑，但定时器回调仍可能在这一帧被触发；此时 IsValid 对某些对象还可能为真，继续访问组件或移动目标就会产生一批无效调用甚至崩溃。修正：在 PollTarget 开头加 `UWorld* World = GetWorld(); if (!World || World->bIsTearingDown) return;`，并在 EndPlay 里 `World->GetTimerManager().ClearTimer(PollTimer)` 与 `CachedTarget.Reset()`。固定判断顺序是“空 → IsValid → IsActorBeingDestroyed → 世界 bIsTearingDown”，每层拦不同的问题。",
+    "explain": "判空有四个层次，不是一句 `!= nullptr` 或 IsValid 就能覆盖：地址在、对象未被标记销毁、Actor 不在销毁流程里、世界没在拆除，任一不满足都不该继续操作。世界关闭阶段晚到的 Tick、定时器、网络回调是高频踩坑点，日志表现是“对象明明有效却报无效调用”。判分点：说出 bIsTearingDown 这一层、把它放在使用点最前面，并顺手补上 EndPlay 里的 ClearTimer。"
+  },
+  {
+    "id": "ue10-x64",
+    "cat": "ue10",
+    "unit": 64,
+    "unitTitle": "Q64 悬垂指针是怎么产生的，怎么防？",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的定时器用 lambda 捕获裸 this，且 EndPlay 只解绑了委托，组件销毁后偶发崩溃。请指出两处问题并给出 UE5 的修法：\n\n```cpp\nvoid UMyListenerComponent::BeginPlay()\n{\n    Super::BeginPlay();\n    if (UMyEventManager* Mgr = GetWorld()->GetSubsystem<UMyEventManager>())\n    {\n        Mgr->OnWaveStart.AddUObject(this, &UMyListenerComponent::HandleWaveStart);\n    }\n    FTimerDelegate Delegate = FTimerDelegate::CreateLambda([this]()\n    {\n        CachedTarget.Reset();\n        RefreshUI();\n    });\n    GetWorld()->GetTimerManager().SetTimer(PollTimer, Delegate, 1.f, true);\n}\n\nvoid UMyListenerComponent::EndPlay(const EEndPlayReason::Type Reason)\n{\n    if (UMyEventManager* Mgr = GetWorld()->GetSubsystem<UMyEventManager>())\n    {\n        Mgr->OnWaveStart.RemoveAll(this);\n    }\n    Super::EndPlay(Reason);   // 没有清理 PollTimer\n}\n```",
+    "ref": "两处问题：① `FTimerDelegate::CreateLambda([this]{...})` 保存的是捕获裸地址的可调用对象，触发前没有有效性检查，组件销毁后定时器再跑就是悬垂调用，RefreshUI() 会踩已释放内存；② EndPlay 只 `RemoveAll(this)` 没 `ClearTimer(PollTimer)`，委托清了但定时器还在，同样是“未来才执行”的回调。修法：改用 `FTimerDelegate::CreateWeakLambda(this, [...] )`（或用 TWeakObjectPtr 捕获并在首行判空），并在 EndPlay 里对 `GetWorld()->GetTimerManager()` 调 `ClearTimer(PollTimer)`，再 `CachedTarget.Reset()`；清理清单固定为委托、定时器、缓存三项。",
+    "explain": "AddUObject/AddDynamic 内部是弱引用，广播时会跳过失效对象；但 lambda 绑定没有这层保护，捕获裸 this 等于把生命周期赌在对象活得比回调久上。定时器与委托是两条独立的“未来执行”路径，只清一条仍会悬垂。判分点：识别 lambda 捕获裸 this 的风险、知道 CreateWeakLambda、补齐 ClearTimer，并能把清理清单说成三条固定项而不是凭记忆。"
+  },
+  {
+    "id": "ue10-x65",
+    "cat": "ue10",
+    "unit": 65,
+    "unitTitle": "Q65 Tick 里做什么会出事？",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段 Tick 每一帧都重新绑定委托并拼接日志字符串，运行越久回调次数越多、分配热点也越明显。请指出两类问题并给出修正：\n\n```cpp\nvoid AMyWaveActor::Tick(float DeltaSeconds)\n{\n    Super::Tick(DeltaSeconds);\n\n    if (UMyEventManager* Mgr = GetWorld()->GetSubsystem<UMyEventManager>())\n    {\n        Mgr->OnWaveStart.AddDynamic(this, &AMyWaveActor::HandleWaveStart);\n    }\n\n    const FString Msg = FString::Printf(\n        TEXT(\"Wave=%d Alive=%d\"), CurrentWave, AliveCount);\n    UE_LOG(LogTemp, Verbose, TEXT(\"%s\"), *Msg);\n}\n```",
+    "ref": "① AddDynamic 是往多播委托的槽位列表里追加，不会自动去重：每帧调一次，槽位线性增长，一次 OnWaveStart 广播就把 HandleWaveStart 调用 N 次，表现为伤害重复结算、UI 重复刷新，越跑越慢。修正：绑定移到 BeginPlay 只做一次，或改用 AddUniqueDynamic，或重绑前先 RemoveDynamic(this, &AMyWaveActor::HandleWaveStart)；EndPlay 里 RemoveAll(this)。② 每帧 FString::Printf 会堆分配并格式化，是 Tick 里的分配热点。修正：非必要不打日志，或用 FName、结构化参数、只在状态变化时输出，Shipping 下用编译开关关掉。",
+    "explain": "Tick 的成本是“单次开销 × 实例数 × 帧率”，重复绑定与每帧分配都会被这个乘法放大。重复绑定不会崩也不会报错，只表现为回调次数越来越多，所以只能通过对比广播次数与回调行数来发现。判分点：指出 AddDynamic 不去重并给出 BeginPlay/AddUniqueDynamic 两种修法，识别 FString::Printf 的每帧分配；只说“把 Tick 关掉”不算解决，逻辑仍要在事件发生时执行。"
+  },
+  {
+    "id": "ue10-x66",
+    "cat": "ue10",
+    "unit": 66,
+    "unitTitle": "Q66 为什么构造函数里 GetWorld() 是空的？",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这个组件在构造函数里访问 Owner 并写入 Tags，运行时 Owner 总是空、这些设置从未生效。请解释原因并给出正确的初始化位置：\n\n```cpp\nUMyShieldComponent::UMyShieldComponent()\n{\n    PrimaryComponentTick.bCanEverTick = true;\n\n    if (AActor* Owner = GetOwner())\n    {\n        Owner->Tags.AddUnique(TEXT(\"Shielded\"));\n        CachedOwnerLocation = Owner->GetActorLocation();\n    }\n}\n```",
+    "ref": "构造函数执行得太早：CreateDefaultSubobject 创建默认子对象时，组件与 Actor 的 Owner 关系还没建立完，GetOwner() 返回空；CDO 也会走同一个构造函数，那时更没有 Owner 与世界。所以 Tags.AddUnique 与缓存位置的代码根本不会执行，运行期看就是“代码没跑”。修正：把依赖 Owner 的逻辑放到 OnRegister()（组件注册时 Owner 已确定）或 BeginPlay()；需要在编辑器里随属性变化生效的放 OnConstruction（注意编辑器也会触发）。PrimaryComponentTick 这类纯默认值留在构造函数即可。",
+    "explain": "Actor 的创建顺序是“构造 → 关联 Level/World → 注册组件 → BeginPlay”，组件在构造期只是被创建，Owner 与注册状态都还没就位；这也解释了为什么 GetOwner、GetWorld、碰撞与 Tick 在构造里都不可靠。易错点是看到 GetOwner 偶尔非空就以为可用，那只是某些创建路径的巧合。判分点：说出 Owner 关系建立晚于构造、给出 OnRegister/BeginPlay 落点，并区分“默认值”与“依赖 Owner 的初始化”。"
+  },
+  {
+    "id": "ue10-x67",
+    "cat": "ue10",
+    "unit": 67,
+    "unitTitle": "Q67 委托没解绑会怎样？",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段委托绑定在编译期就失败，报错大意是“不能绑定非 UFUNCTION 的成员函数”。请指出原因、说明动态委托的额外约束，并给出修正：\n\n```cpp\n// MyListenerComponent.h\nUCLASS()\nclass MYGAME_API UMyListenerComponent : public UActorComponent\n{\n    GENERATED_BODY()\npublic:\n    void HandleWaveStart(int32 WaveIndex);   // 没有 UFUNCTION()\n};\n\n// MyListenerComponent.cpp\nvoid UMyListenerComponent::BeginPlay()\n{\n    Super::BeginPlay();\n    if (UMyEventManager* Mgr = GetWorld()->GetSubsystem<UMyEventManager>())\n    {\n        Mgr->OnWaveStart.AddDynamic(this, &UMyListenerComponent::HandleWaveStart);\n    }\n}\n```",
+    "ref": "AddDynamic 专用于动态多播委托：它不保存函数指针，而是按“函数名”在运行时通过反射查找 UFunction，所以被绑定的成员函数必须带 UFUNCTION() 宏并由 UHT 生成反射信息；没有宏时，绑定处会在编译期报错（不能把非 UFUNCTION 成员用于 AddDynamic）。修正：在声明前加 `UFUNCTION()`，即 `UFUNCTION() void HandleWaveStart(int32 WaveIndex);`，参数列表必须与委托签名一致，然后重新构建让 UHT 生成反射代码。若不需要蓝图或序列化参与，也可改用 AddUObject、AddWeakLambda 这类原生绑定。",
+    "explain": "动态委托与原生委托的核心差别在这里：前者按名字绑定、可暴露给蓝图与序列化，所以需要反射；后者直接存函数指针，不要求 UFUNCTION。代价是动态绑定对改名敏感——函数改名或改签名后不一定编译报错，只会“回调不来了、蓝图绑定失效”。判分点：说出 UFUNCTION 这个必要条件、指出签名必须匹配，并能对比 AddUObject 的适用场景与生命周期语义。"
+  },
+  {
+    "id": "ue10-x68",
+    "cat": "ue10",
+    "unit": 68,
+    "unitTitle": "Q68 多线程里能碰 UObject 吗？",
+    "type": "code",
+    "diff": 3,
+    "q": "下面用 std::thread 在后台批量生成子弹，运行时不定期崩溃并出现线程断言。请指出根因，并给出符合 UE5 线程模型的改法：\n\n```cpp\nvoid AMySpawner::StartBurst()\n{\n    std::thread Worker([this]()\n    {\n        for (int32 i = 0; i < 10; ++i)\n        {\n            FActorSpawnParameters Params;\n            Params.Owner = this;\n            GetWorld()->SpawnActor<AMyBullet>(\n                BulletClass, GetActorTransform(), Params);\n        }\n    });\n    Worker.detach();\n}\n```",
+    "ref": "std::thread 不在 UE 任务图里，没有线程标记与断言语境；GetWorld()、SpawnActor 都是只能在游戏线程调用的 UObject API，内部按 check(IsInGameThread()) 假设，工作线程调用会断言或数据竞争。修正：不要用 std::thread 直接碰 UObject。纯计算留在后台（AsyncTask(AnyBackgroundThreadNormalTask) 或 FRunnable），生成 Actor 用 `AsyncTask(ENamedThreads::GameThread, [WeakThis = TWeakObjectPtr<AMySpawner>(this)]{ if (auto* Self = WeakThis.Get()) { /* SpawnActor */ } })` 排回游戏线程，参数进任务前值拷贝。",
+    "explain": "UObject 归游戏线程所有，GC 也在游戏线程串行推进，所以跨线程只能传值、句柄或索引，落地必须排队回游戏线程；渲染资源另有渲染线程，用 ENQUEUE_RENDER_COMMAND。std::thread 绕开了任务图的线程归属，出问题时既没有断言提示，也难以在 Unreal Insights 里定位，属于工程禁用写法。判分点：指出 SpawnActor 的游戏线程约束、给出 AsyncTask 回主线程的具体写法，并用弱引用兜住对象已销毁的情况。"
+  }
+]

@@ -1,0 +1,431 @@
+[
+  {
+    "id": "d4-001",
+    "cat": "d4",
+    "unit": 41,
+    "unitTitle": "`struct` 与 `class` 的区别",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 `struct` 与 `class` 的区别，下列说法正确的有？",
+    "options": [
+      "`class` 的成员默认访问权限是 private、默认继承方式是 private 继承；`struct` 分别是 public 和 public 继承",
+      "除这两个默认值之外，两者能力完全一致：都能写成员函数、构造析构、继承、虚函数、模板和运算符重载",
+      "聚合初始化要求成员全 public、没有用户提供的构造函数、没有虚函数、没有虚基类或私有基类",
+      "`struct` 是 C 的遗留写法，只能存放纯数据，不能定义成员函数和虚函数",
+      "给 `struct` 加一个构造函数不影响已有代码，`Point{1, 2}` 这类聚合初始化照常可用"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "标准里两者只差两个默认值：成员默认访问权限与默认继承方式；其余能力、布局与 ABI 完全相同，所以 `struct` 同样能写 private 成员、成员函数和虚函数。聚合资格只看成员是否可访问、有没有用户提供的构造函数、有无虚函数/虚基类，与用哪个关键字声明无关。选项 3 把 `struct` 当成 C 遗留类型，选项 4 正好踩了“加构造函数就失去聚合身份”的坑。",
+    "src": "深读.md#unit-41"
+  },
+  {
+    "id": "d4-002",
+    "cat": "d4",
+    "unit": 41,
+    "unitTitle": "`struct` 与 `class` 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "阅读下面的代码（C++17）：\n```cpp\nstruct Plain  { int x; int y; };\nclass  Shadow { int x; int y; };\nclass  Open   { public: int x; int y; };\n\nstatic_assert(std::is_aggregate_v<Plain>);\nstatic_assert(!std::is_aggregate_v<Shadow>);\nstatic_assert(std::is_aggregate_v<Open>);\n```\n问题：三个 `static_assert` 是否都成立，原因分别是什么？如果再给 `Plain` 加一个用户提供的构造函数，`std::is_aggregate_v<Plain>` 和 `Plain p{1, 2};` 会怎样？",
+    "ref": "三个断言都成立：`Plain` 成员默认可访问且无用户提供构造函数，是聚合；`Shadow` 成员默认 private、类外不可访问，不是聚合；`Open` 虽是 `class` 但成员全在 public 区，仍是聚合——聚合资格与关键字无关，只看成员可访问性与构造函数。给 `Plain` 加用户提供的构造函数后 `std::is_aggregate_v<Plain>` 变为 false，`Plain p{1, 2};` 的聚合初始化失效（需改为调用构造函数或保留花括号直接初始化）。",
+    "explain": "三个断言分别验证默认访问权限、默认访问权限造成的后果，以及“聚合资格与关键字无关”这一点。易错点是把 `class` 直接等同于非聚合，实际上 `Open` 就是聚合，所以验证聚合要用 `std::is_aggregate_v`，不要凭“能不能用花括号初始化”去猜。聚合要求成员可访问且没有用户提供的构造函数，一旦加了构造函数就立即失去聚合身份。",
+    "src": "深读.md#unit-41"
+  },
+  {
+    "id": "d4-003",
+    "cat": "d4",
+    "unit": 42,
+    "unitTitle": "C++ 面向对象的三大特性",
+    "type": "single",
+    "diff": 2,
+    "q": "关于 C++ 面向对象的三大特性，下列说法正确的是？",
+    "options": [
+      "多态就是虚函数，没有虚函数的代码不存在任何形式的多态",
+      "继承的价值在于复用基类代码，只要想复用实现就应该用继承",
+      "运行期多态需要虚函数并通过基类指针或引用调用；编译期多态可以靠重载与模板（如 CRTP）实现",
+      "用基类对象按值接收派生对象，虚调用仍会落到派生实现"
+    ],
+    "answer": [2],
+    "explain": "运行期多态 = 虚函数 + 同签名实现 + 通过指针/引用调用，三者齐备才动态绑定；重载和模板（CRTP）属于编译期多态，不需要 vptr。继承表达 is-a，只为复用代码应改用组合，否则基类一改就波及全部派生类。按值接收会发生对象切片，vptr 退回基类，虚调用不再落到派生实现。",
+    "src": "深读.md#unit-42"
+  },
+  {
+    "id": "d4-004",
+    "cat": "d4",
+    "unit": 42,
+    "unitTitle": "C++ 面向对象的三大特性",
+    "type": "code",
+    "diff": 2,
+    "q": "阅读下面的代码：\n```cpp\nstruct Base {\n    virtual ~Base() = default;\n    virtual const char* name() const { return \"Base\"; }\n};\nstruct Derived : Base {\n    const char* name() const override { return \"Derived\"; }\n};\n\nvoid byRef(Base& b) { std::cout << \"ref: \" << b.name() << '\\n'; }\nvoid byVal(Base b)  { std::cout << \"val: \" << b.name() << '\\n'; }\n\nint main() {\n    Derived d;\n    byRef(d);\n    byVal(d);\n}\n```\n问题：两次调用分别输出什么？为什么？",
+    "ref": "输出两行：`ref: Derived` 与 `val: Base`。`byRef` 通过基类引用调用，满足“虚函数 + 同签名 + 指针/引用调用”，动态绑定到 `Derived::name`；`byVal` 按值接收 `Base`，发生对象切片，只拷贝基类子对象、vptr 退回基类，所以调用的是 `Base::name`，且编译期没有任何警告。",
+    "explain": "动态绑定的三个前提缺一不可，按值传参恰好破坏了“通过指针或引用调用”这一条。切片是静默行为，只有运行结果才会暴露，所以要多用 `const Base&` 或 `Base*` 接收。`std::vector<Base>` 里塞派生对象是同一个坑，纯虚时甚至直接编不过。",
+    "src": "深读.md#unit-42"
+  },
+  {
+    "id": "d4-005",
+    "cat": "d4",
+    "unit": 43,
+    "unitTitle": "访问修饰符",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于访问修饰符与继承方式，下列说法正确的有？",
+    "options": [
+      "派生类不能直接访问基类的 private 成员，只能通过基类提供的 public/protected 接口或友元",
+      "`protected` 继承会把基类中 public 与 protected 成员在派生类中的可见级别统一降为 protected",
+      "`friend` 关系不可继承、不传递，并且是单向授权",
+      "`protected` 成员在类外可以通过派生类对象访问",
+      "`private` 继承之后，派生类内部也访问不到基类的 public 成员"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "三个修饰符管“谁能看见成员”，继承方式管“基类成员在派生类里被降级成什么”，两件事要分开记。基类 private 成员在任何继承方式下都不可见，`protected` 也只对派生类成员/友元开放、类外不可访问。private 继承只是把可见性降为 private 并阻断向上转型，派生类内部照样能访问基类 public/protected 成员。",
+    "src": "深读.md#unit-43"
+  },
+  {
+    "id": "d4-006",
+    "cat": "d4",
+    "unit": 43,
+    "unitTitle": "访问修饰符",
+    "type": "fill",
+    "diff": 1,
+    "q": "`protected` 继承会把基类中 public 与 protected 成员在派生类中的可见级别统一降为 ____。",
+    "answer": ["protected", "protected 级别"],
+    "explain": "继承方式只降低基类成员在派生类中的可见性，不改变基类自身定义。public 继承保持原级别，protected 继承把 public 和 protected 都变成 protected，private 继承则全部变成 private；而基类 private 成员在任何继承方式下都不可见。",
+    "src": "深读.md#unit-43"
+  },
+  {
+    "id": "d4-007",
+    "cat": "d4",
+    "unit": 44,
+    "unitTitle": "多重继承与菱形继承",
+    "type": "single",
+    "diff": 2,
+    "q": "`struct L : Base {}; struct R : Base {}; struct D : L, R {};`（都非虚继承）中，执行 `d.value = 1;` 会怎样？",
+    "options": [
+      "编译通过，只有一份 `Base::value` 被赋值",
+      "编译期报二义性错误，必须写成 `d.L::value` 这样的限定形式才能通过",
+      "编译通过，运行期随机选一份 `Base` 赋值",
+      "编译通过，两份 `Base::value` 被同时赋值"
+    ],
+    "answer": [1],
+    "explain": "非虚菱形下 `D` 里有两份 `Base` 子对象，名字查找在派生类作用域找到多个候选，属于编译期二义性错误，与虚函数无关。消除办法是用作用域限定 `d.L::value`，或在 `D` 里写 `using L::value;`。改成虚继承后公共祖先只保留一份，`d.value` 才不再二义。",
+    "src": "深读.md#unit-44"
+  },
+  {
+    "id": "d4-008",
+    "cat": "d4",
+    "unit": 44,
+    "unitTitle": "多重继承与菱形继承",
+    "type": "code",
+    "diff": 3,
+    "q": "阅读下面的代码：\n```cpp\nstruct A { int value = 0; };\nstruct B : virtual A {};\nstruct C : virtual A {};\nstruct D : B, C {};\n\nint main() {\n    D d;\n    A* viaB = static_cast<B*>(&d);\n    A* viaC = static_cast<C*>(&d);\n    std::cout << (viaB == viaC) << '\\n';\n}\n```\n问题：输出是什么？如果把 `B`、`C` 的 `virtual` 都去掉，输出与 `d.value` 的可用性会怎样变化？",
+    "ref": "输出 `1`：两条路径转成 `A*` 后指向同一个 `A` 子对象。去掉中间层的 `virtual` 后输出 `0`，并且 `d.value` 出现二义性编译错误（必须写 `d.B::value` 或 `d.C::value`）。虚继承让公共祖先只保留一份，代价是虚基类位置由最派生类决定、访问要经偏移计算，`sizeof(D)` 也随之变大。",
+    "explain": "判断“是不是同一个子对象”必须先转成共同基类再比较，直接比 `B*`/`C*` 或 `void*` 会因地址调整得出错误结论。虚继承必须在每一条路径上都写 `virtual`，一条虚一条不虚仍会有两份副本。虚基类还必须由最派生类负责初始化。",
+    "src": "深读.md#unit-44"
+  },
+  {
+    "id": "d4-009",
+    "cat": "d4",
+    "unit": 45,
+    "unitTitle": "重载与重写的区别",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于重载与重写，下列说法正确的有？",
+    "options": [
+      "返回类型不参与重载，只差返回类型的两个声明是重复定义",
+      "重写要求参数列表、cv 限定、引用限定完全一致，返回类型相同或协变",
+      "派生类声明同名函数会隐藏基类所有同名重载，需要 `using Base::f;` 才能恢复",
+      "加 `override` 会改变多态语义，把经基类指针的调用变成静态绑定",
+      "重写时修改默认参数不影响行为，因为默认参数也参与签名"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "重载发生在同一作用域、编译期按实参决议，签名是函数名 + 参数列表 + cv/ref 限定，不含返回类型；重写发生在继承体系、运行期经 vptr 决议，签名任一处不一致就退化成名字隐藏。`override` 只是让签名不匹配从静默隐藏变成编译错误，不改变多态语义。默认参数不参与签名且静态绑定，经基类指针调用会用基类的默认值。",
+    "src": "深读.md#unit-45"
+  },
+  {
+    "id": "d4-010",
+    "cat": "d4",
+    "unit": 45,
+    "unitTitle": "重载与重写的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "阅读下面的代码：\n```cpp\nstruct Base {\n    virtual ~Base() = default;\n    virtual void f(int) const { std::cout << \"Base::f(int)\\n\"; }\n    void g(int) { std::cout << \"Base::g(int)\\n\"; }\n};\n\nstruct Derived : Base {\n    void f(int) const override { std::cout << \"Derived::f(int)\\n\"; }\n    void g(std::string) { std::cout << \"Derived::g(string)\\n\"; }\n};\n\nint main() {\n    Derived d;\n    Base* p = &d;\n    p->f(1);\n    d.g(1);\n}\n```\n问题：两处调用分别会发生什么？怎么改才能让 `d.g(1)` 调到 `Base::g(int)`？",
+    "ref": "`p->f(1)` 打印 `Derived::f(int)`：`f` 是虚函数、签名一致，经基类指针调用走动态绑定。`d.g(1)` 编译失败：`Derived::g(std::string)` 隐藏了基类全部同名重载（包括 `g(int)`），名字查找不会回到基类作用域。在 `Derived` 的 public 区加 `using Base::g;` 后，`d.g(1)` 才会调到 `Base::g(int)`。",
+    "explain": "名字隐藏盖住的是基类这一整组同名函数，而不是只盖住同签名那个，所以 `g(int)` 与 `g(std::string)` 在这里不是重载关系。重写要求签名完全一致，本例 `f` 的 `const` 一致才真正构成重写，`override` 能保证这一点。漏写 `const` 再加 `override` 会立刻报“does not override”。",
+    "src": "深读.md#unit-45"
+  },
+  {
+    "id": "d4-011",
+    "cat": "d4",
+    "unit": 46,
+    "unitTitle": "构造函数与析构函数",
+    "type": "single",
+    "diff": 2,
+    "q": "`Base* p = new Derived; delete p;`，而 `~Base()` 没有声明为 `virtual`，会发生什么？",
+    "options": [
+      "编译失败，非虚析构的基类不能用于多态删除",
+      "只执行基类析构，派生类析构不执行、派生类资源泄漏，属于未定义行为",
+      "编译器自动找到派生类析构，析构顺序正确",
+      "运行期抛出异常，可以通过 catch 捕获"
+    ],
+    "answer": [1],
+    "explain": "`delete` 通过基类指针删除时按静态类型 `Base` 决议析构调用，非虚就是静态绑定，派生析构不会被调用；标准上这就是 UB，`std::unique_ptr<Base>` 持派生对象同理。多态基类必须写 `virtual ~Base()`，或者把析构设为 protected 且非虚以禁止经基类指针删除。程序往往仍能编过、跑完，只是资源泄漏，所以更难发现。",
+    "src": "深读.md#unit-46"
+  },
+  {
+    "id": "d4-012",
+    "cat": "d4",
+    "unit": 46,
+    "unitTitle": "构造函数与析构函数",
+    "type": "code",
+    "diff": 2,
+    "q": "阅读下面的代码，写出 `main` 的完整输出顺序：\n```cpp\nstruct Member {\n    explicit Member(const char* n) : name(n) { std::cout << \"member \" << name << \" ctor\\n\"; }\n    ~Member() { std::cout << \"member \" << name << \" dtor\\n\"; }\n    std::string name;\n};\n\nstruct Base {\n    Base() { std::cout << \"Base ctor\\n\"; }\n    virtual ~Base() { std::cout << \"Base dtor\\n\"; }\n};\n\nstruct Derived : Base {\n    Member m1{\"m1\"};\n    Member m2{\"m2\"};\n    Derived() { std::cout << \"Derived ctor body\\n\"; }\n    ~Derived() override { std::cout << \"Derived dtor body\\n\"; }\n};\n\nint main() {\n    Base* p = new Derived;\n    delete p;\n}\n```",
+    "ref": "构造：`Base ctor` → `member m1 ctor` → `member m2 ctor` → `Derived ctor body`；析构：`Derived dtor body` → `member m2 dtor` → `member m1 dtor` → `Base dtor`。构造顺序是虚基类 → 直接基类 → 成员（按声明顺序）→ 构造函数体，析构严格逆序；成员按声明顺序构造，与初始化列表的书写顺序无关。",
+    "explain": "基类析构声明为虚，`delete` 基类指针才会执行派生析构；删掉 `virtual` 后同一程序只打印基类那两行，派生析构被跳过，这就是 UB 的可观察表现。顺序题的关键是“基类先、成员按声明顺序、析构严格逆序”，把初始化列表写反不会改变输出。析构函数默认 `noexcept`，清理代码抛异常会直接 `std::terminate`。",
+    "src": "深读.md#unit-46"
+  },
+  {
+    "id": "d4-013",
+    "cat": "d4",
+    "unit": 47,
+    "unitTitle": "构造函数的种类",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于构造函数的种类与特殊成员控制，下列说法正确的有？",
+    "options": [
+      "用户声明任何构造函数后，编译器不再隐式生成默认构造，需要时写 `= default` 恢复",
+      "移动构造不标 `noexcept` 时，`std::vector` 扩容为保证异常安全会退回拷贝",
+      "`= delete` 的函数仍参与重载决议，被选中时报“使用已删除函数”，诊断早于 private 未定义",
+      "默认拷贝构造会逐成员深拷贝，对裸指针成员会重新分配一份内存",
+      "委托构造会在同一个对象上先后执行两次完整初始化"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "六种构造只是同一套初始化规则的不同入口，真正要记的是谁会被隐式调用。默认拷贝构造逐成员拷贝，指针只拷地址，持有裸资源必须自定义深拷贝，否则析构时双重释放。委托构造只执行一次完整初始化（被委托的那个构造），随后执行外层构造体，所以不会初始化两遍。`explicit` 与 `= delete` 用来主动关掉不需要的隐式入口。",
+    "src": "深读.md#unit-47"
+  },
+  {
+    "id": "d4-014",
+    "cat": "d4",
+    "unit": 47,
+    "unitTitle": "构造函数的种类",
+    "type": "fill",
+    "diff": 1,
+    "q": "单参构造函数不加 ____ 时，`Widget w = 3;` 会编译通过并悄悄构造一个临时对象。",
+    "answer": ["explicit", "explicit 关键字"],
+    "explain": "转换构造就是“单参且未 explicit”的构造，会参与隐式转换序列，让重载决议选到意料之外的分支。加上 `explicit` 后 `Widget w = 3;` 报错，而 `Widget w{3};` 的直接初始化仍然可用。C++11 起 `explicit` 也能用于多参构造，阻止 `{}` 形式的隐式转换。",
+    "src": "深读.md#unit-47"
+  },
+  {
+    "id": "d4-015",
+    "cat": "d4",
+    "unit": 48,
+    "unitTitle": "虚函数与虚函数表",
+    "type": "single",
+    "diff": 2,
+    "q": "某基类只含虚函数、没有任何数据成员，在 LP64 主流实现上 `sizeof(Base)` 为 8。这 8 字节是什么？",
+    "options": [
+      "一张 vtable 的完整拷贝",
+      "一个 vptr，指向该类共享的 vtable",
+      "编译器插入的对齐填充",
+      "所有纯虚函数入口地址的数组"
+    ],
+    "answer": [1],
+    "explain": "主流 ABI 是每个含虚函数的类一张 vtable、每个对象只存一个指向它的 vptr（通常在对象起始处），所以 `sizeof` 至少多一个指针大小，LP64 上就是 8。vtable 在类级别共享，不在对象里，选项 0 是“每个对象存一张表”的典型误解。含虚函数的对象 `sizeof` 不再等于成员之和，不能拿来序列化或 `memcpy`。",
+    "src": "深读.md#unit-48"
+  },
+  {
+    "id": "d4-016",
+    "cat": "d4",
+    "unit": 48,
+    "unitTitle": "虚函数与虚函数表",
+    "type": "code",
+    "diff": 3,
+    "q": "阅读下面的代码：\n```cpp\nstruct Base {\n    Base() { std::cout << \"ctor tag=\" << tag() << '\\n'; }\n    virtual ~Base() { std::cout << \"dtor tag=\" << tag() << '\\n'; }\n    virtual std::string tag() const { return \"Base\"; }\n};\n\nstruct Derived : Base {\n    Derived() { std::cout << \"Derived body\\n\"; }\n    std::string tag() const override { return \"Derived\"; }\n};\n\nint main() { Derived d; }\n```\n问题：输出的第一行和最后一行是什么？为什么不是 `Derived`？",
+    "ref": "第一行 `ctor tag=Base`，最后一行 `dtor tag=Base`（中间还有 `Derived body`）。构造和析构期间对象的动态类型退化为当前正在构造/析构的那个类，虚调用只绑定当前类版本：`Base` 构造时派生部分还没构造，`Base` 析构时派生部分已销毁，所以都调用 `Base::tag`。",
+    "explain": "这是标准为避免“用到尚未构造或已销毁的派生成员”而定的规则，不是编译器保守。由此推论：构造函数里调虚函数做模板方法拿不到派生实现，构造期调用纯虚函数更是 UB。需要多态初始化时，只能由调用方在对象构造完成后显式调用，而不是依赖构造期虚调用。",
+    "src": "深读.md#unit-48"
+  },
+  {
+    "id": "d4-017",
+    "cat": "d4",
+    "unit": 49,
+    "unitTitle": "虚函数与对象模型进阶",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于虚继承布局、RTTI 与去虚化，下列说法正确的有？",
+    "options": [
+      "虚基类子对象的偏移取决于最派生类，主流实现把偏移记录在 vtable 的虚基类偏移项里",
+      "`dynamic_cast` 依赖 RTTI：向下/交叉转换失败时指针版返回 nullptr，引用版抛 std::bad_cast",
+      "`final` 能让编译器确认实现唯一，从而把虚调用去虚化甚至内联",
+      "多继承下不同分支的基类指针转成 `void*` 后地址一定相同，可以直接比较判断是否同一对象",
+      "加 `-fno-rtti` 编译后 `dynamic_cast` 仍可用，只是更慢"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "虚继承把“基类子对象在哪”变成运行期数据，`Base*` 与 `Derived*` 的数值可以不同，所以判断是否同一对象要先转成共同基类再比较，直接比 `void*` 会出错。`dynamic_cast` 沿 vtable 找到类型信息再做运行期检查，比 `static_cast` 贵得多，源类型还必须有多态类型。`-fno-rtti` 下 `dynamic_cast` 直接编不过；`final` + LTO 是去虚化的常见手段。",
+    "src": "深读.md#unit-49"
+  },
+  {
+    "id": "d4-018",
+    "cat": "d4",
+    "unit": 49,
+    "unitTitle": "虚函数与对象模型进阶",
+    "type": "code",
+    "diff": 3,
+    "q": "阅读下面的代码：\n```cpp\nstruct V { virtual ~V() = default; int v = 1; };\nstruct L : virtual V { int l = 2; };\nstruct R : virtual V { int r = 3; };\nstruct D : L, R { int d = 4; };\n\nint main() {\n    D obj;\n    L* pl = &obj;\n    R* pr = dynamic_cast<R*>(pl);\n    std::cout << (pr != nullptr) << ' ' << (pr && pr->v == obj.v) << '\\n';\n    std::cout << (void*)static_cast<V*>(pl) << '\\n'\n              << (void*)static_cast<V*>(pr) << '\\n';\n}\n```\n问题：两处输出分别说明什么？如果把 `dynamic_cast<R*>` 换成 `static_cast<R*>` 会怎样？",
+    "ref": "第一行输出 `1 1`：交叉转换成功，两条分支读到同一个 `V` 子对象（`v` 一致）。第二行两个 `V*` 转换后的地址相同，而 `pl` 与 `pr` 作为 `L*`/`R*` 的地址通常不同——说明基类指针转换要调整地址。把 `dynamic_cast` 换成 `static_cast` 做这种交叉转换会直接编译失败（`R` 既不是 `L` 的基类也不是派生类），`static_cast` 只做编译期可判定的转换。",
+    "explain": "`dynamic_cast` 要求源类型是多态类型（有虚函数），沿 vtable 找到类型信息再判断目标类型是否可达，指针版失败返回 nullptr、引用版抛 `std::bad_cast`。布局与偏移是 ABI 细节，只能观测不能断言跨编译器相同。判断“是否同一对象”一律先转成共同基类再比较，不能比 `void*`。",
+    "src": "深读.md#unit-49"
+  },
+  {
+    "id": "d5-001",
+    "cat": "d5",
+    "unit": 50,
+    "unitTitle": "模板实现一定要写在头文件中吗",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于模板的实例化与“实现必须写在头文件里”的说法，正确的有？",
+    "options": [
+      "真正的要求是“实例化点能看见完整定义”，把实现拆到 `.tpp` 并在头文件末尾 `#include` 回来同样成立",
+      "`extern template` 只抑制本 TU 的隐式实例化，必须另有 TU 提供显式实例化定义，否则链接失败",
+      "显式实例化 `template class Box<int>;` 会实例化所有非模板成员，包括没被调用的",
+      "`.tpp` 实现了真正的分离编译，编译期可见性与把实现放在头文件里不同",
+      "模板实现放在 `.cpp` 里，任何情况下都一定链接失败"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "模板本身不生成机器码，只在具体类型上实例化时才生成，所以关键是定义在使用点可见。`.tpp` 只是物理分层，预处理后仍合并成同一个翻译单元，不构成分离编译。类型集合封闭时可以放 `.cpp` + 显式实例化，再用 `extern template` 抑制其他 TU 重复生成——它是“本 TU 不生成”，不是“导出定义”。",
+    "src": "深读.md#unit-50"
+  },
+  {
+    "id": "d5-002",
+    "cat": "d5",
+    "unit": 50,
+    "unitTitle": "模板实现一定要写在头文件中吗",
+    "type": "code",
+    "diff": 3,
+    "q": "阅读下面的代码：\n```cpp\ntemplate <class T> struct Box {\n    explicit Box(T v);\n    T get() const;\n    T v_;\n};\ntemplate <class T> Box<T>::Box(T v) : v_(v) {}\ntemplate <class T> T Box<T>::get() const { return v_; }\n\ntemplate struct Box<int>;             // 显式实例化\nextern template struct Box<double>;   // 只抑制本 TU 的隐式实例化\n\nint main() {\n    Box<int> a(42);\n    Box<double> d(1.5);\n    std::printf(\"%d %.2f\\n\", a.get(), d.get());\n}\n```\n问题：这段代码能编译链接成功吗？若不能，报什么错、怎么改？",
+    "ref": "编译通过、链接失败：`undefined reference to Box<double>::Box(double)`（`get()` 同理）。`Box<int>` 由 `template struct Box<int>;` 在本 TU 显式实例化，符号有定义；`Box<double>` 被 `extern template` 抑制了隐式实例化，又没有任何 TU 提供显式实例化定义。改法有两种：删掉 `extern template struct Box<double>;` 让它在本 TU 隐式实例化，或在某个 `.cpp` 写 `template struct Box<double>;`。",
+    "explain": "`extern template` 的语义是“本 TU 不要隐式实例化这个特化”，它不提供定义，所以必须配对一处显式实例化。用 `nm -C` 能看到 `Box<int>::get` 是 `T`（已定义）、`Box<double>::get` 是 `U`（未定义）。这个方案只适合支持类型集合封闭的场景，代价是类型必须提前写死。",
+    "src": "深读.md#unit-50"
+  },
+  {
+    "id": "d5-003",
+    "cat": "d5",
+    "unit": 51,
+    "unitTitle": "模板与编译期",
+    "type": "single",
+    "diff": 2,
+    "q": "关于函数模板的特化，下列说法正确的是？",
+    "options": [
+      "函数模板既能全特化也能偏特化，写 `template <class T> void f(T*);` 就是偏特化",
+      "函数模板只能全特化，不能偏特化；需要“部分类型特殊处理”要用重载或转给类模板偏特化",
+      "函数模板不能特化，只能靠重载",
+      "函数模板可以偏特化，但必须同时改变返回类型"
+    ],
+    "answer": [1],
+    "explain": "标准只允许类模板偏特化，函数模板写“部分特化”会被报 `partial specialization of function template is not allowed`。想给“指针类型”单独实现，正确做法是写重载，或把逻辑转交给一个可偏特化的类模板。全特化则是把模板参数全部指定，变成普通定义，函数模板本来就支持。",
+    "src": "深读.md#unit-51"
+  },
+  {
+    "id": "d5-004",
+    "cat": "d5",
+    "unit": 51,
+    "unitTitle": "模板与编译期",
+    "type": "code",
+    "diff": 3,
+    "q": "阅读下面的代码：\n```cpp\ntemplate <class T, class = void>\nstruct has_size : std::false_type {};\n\ntemplate <class T>\nstruct has_size<T, std::void_t<decltype(std::declval<const T&>().size())>>\n    : std::true_type {};\n\ntemplate <class T>\nstd::size_t probe(const T& v) {\n    if constexpr (has_size<T>::value) {\n        return v.size();\n    } else {\n        return 0;\n    }\n}\n\nint main() {\n    std::printf(\"%zu %zu\\n\", probe(std::string(\"abc\")), probe(1));\n}\n```\n问题：输出是什么？把 `if constexpr` 改成普通 `if` 会怎样？",
+    "ref": "输出 `3 0`。`has_size<int>::value` 为 false，`if constexpr` 在实例化时丢弃 `v.size()` 分支，所以 `int` 也能编译通过。换成普通 `if` 后两个分支都会被实例化，`v.size()` 对 `int` 非法，报 `request for member 'size' in 'v', which is of non-class type 'const int'`。",
+    "explain": "`void_t` 探测的是“表达式是否合法”，`int` 没有 `size()` 只是让偏特化候选被剔除（SFINAE），不是硬错误，所以 `has_size<int>` 落到主模板的 false_type。`if constexpr` 在实例化时丢弃未选分支，但非依赖部分仍要能解析，也不能替代 `#if`。普通 `if` 是对照组，它的报错正好证明分支确实被实例化。",
+    "src": "深读.md#unit-51"
+  },
+  {
+    "id": "d5-005",
+    "cat": "d5",
+    "unit": 52,
+    "unitTitle": "移动语义与完美转发",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于移动语义与完美转发，下列说法正确的有？",
+    "options": [
+      "移动是转移资源所有权（换指针/句柄），不搬数据；真正搬数据仍然是拷贝",
+      "`std::move` 只是无条件转成右值，能否移动取决于有没有移动构造，`vector` 扩容还要求它 `noexcept`",
+      "移动后的源对象仍是合法对象，可析构、可重新赋值，值处于“有效但未指定”状态",
+      "移动就是把内存内容整体搬到新地址，所以源对象不能再使用",
+      "参数套上 `std::move` 就一定会调用移动构造"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "移动构造只接管指针/句柄并把源对象置成空壳，长度、容量要一起归零，否则析构或后续读取出错。`std::move` 是无条件右值转换，是否真的移动取决于重载决议；`vector` 扩容用 `move_if_noexcept`，移动可能抛异常时会退回复制。移动后的对象只能析构或重新赋值，不能读它的内容。",
+    "src": "深读.md#unit-52"
+  },
+  {
+    "id": "d5-006",
+    "cat": "d5",
+    "unit": 52,
+    "unitTitle": "移动语义与完美转发",
+    "type": "code",
+    "diff": 2,
+    "q": "阅读下面的代码：\n```cpp\nvoid sink(int&)  { std::puts(\"lvalue\"); }\nvoid sink(int&&) { std::puts(\"rvalue\"); }\n\ntemplate <class T>\nvoid relay(T&& v) { sink(v); }\n\nint main() {\n    int x = 1;\n    relay(x);\n    relay(42);\n}\n```\n问题：两次调用分别打印什么？怎么改才能让右实参走 `rvalue` 重载？",
+    "ref": "两次都打印 `lvalue`：`v` 是具名变量，本身是左值，即使实参是右值 `42`，直接写 `sink(v)` 也会绑定到 `sink(int&)`。改成 `sink(std::forward<T>(v))` 后分别打印 `lvalue` 与 `rvalue`，因为 `std::forward<T>` 按显式模板实参还原值类别。",
+    "explain": "转发引用 `T&&` 遇到左值推出 `T = U&`，经引用折叠成为 `U&`；遇到右值推出 `T = U`，是右值引用。漏写 `forward` 时编译器不报错，只是整条转发链静默退回拷贝，所以要用左值/右值两个重载当探针验证。`std::move` 是无条件转右值，与按实参条件转换的 `forward` 不同。",
+    "src": "深读.md#unit-52"
+  },
+  {
+    "id": "d5-007",
+    "cat": "d5",
+    "unit": 53,
+    "unitTitle": "STL 容器复杂度与迭代器失效",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 STL 容器的复杂度与失效规则，下列说法正确的有？",
+    "options": [
+      "`vector` 扩容会重新分配并搬元素，所有迭代器、引用、指针一起失效",
+      "`unordered_map` rehash 只让迭代器失效，元素的引用/指针仍有效，因为节点不搬",
+      "遍历中删除元素应写 `it = v.erase(it);`，用返回值接住下一个位置",
+      "`reserve` 之后可以直接 `v[0] = 1`，因为容量已经分配好了",
+      "`deque` 头插后，已有元素的引用也会一起失效"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "`reserve` 只改 capacity 不改 size，此时 `v[0]` 是越界写（UB），要么 `resize` 要么 `push_back`。`deque` 头尾插入会使所有迭代器失效，但对已有元素的引用/指针没有影响，标准明确区分了这两件事。`erase` 让当前迭代器失效，之后 `++it` 是 UB，必须用返回值自增。",
+    "src": "深读.md#unit-53"
+  },
+  {
+    "id": "d5-008",
+    "cat": "d5",
+    "unit": 53,
+    "unitTitle": "STL 容器复杂度与迭代器失效",
+    "type": "code",
+    "diff": 2,
+    "q": "阅读下面的代码，写出三段输出：\n```cpp\nstd::unordered_map<int, int> m{{2, 20}, {1, 10}};\nint* p = &m[2];\nauto it = m.begin();\nm.rehash(1024);\nstd::printf(\"%d\\n\", *p);\n\nstd::vector<int> v{1, 2, 3, 4};\nfor (auto i = v.begin(); i != v.end();) {\n    if (*i % 2 == 0) i = v.erase(i);\n    else ++i;\n}\nstd::printf(\"%zu\\n\", v.size());\n\nstd::vector<int> w;\nw.reserve(100);\nstd::printf(\"%zu %zu\\n\", w.size(), w.capacity());\n```\n问题：三段输出分别是什么？`it` 在 rehash 之后还能用吗？",
+    "ref": "输出 `20`、`2`、`0 100`。rehash 只重排桶数组、不搬节点，所以 `p` 仍指向原元素，而 `it` 已经失效，不能再解引用或自增。`erase` 循环用返回值接住下一个位置，删除 2 和 4 后剩 2 个元素。`reserve(100)` 只把 capacity 提到 100，size 仍为 0。",
+    "explain": "“迭代器失效 ≠ 引用失效”是节点容器的关键区别：`vector` 扩容三样一起失效，`unordered_map` rehash 只废迭代器。`reserve` 与 `resize` 也常被混淆，前者不构造元素。保存 `vector` 元素指针后再插入，扩容会让指针悬垂，是 ASan 能抓到的典型 UB。",
+    "src": "深读.md#unit-53"
+  },
+  {
+    "id": "d5-009",
+    "cat": "d5",
+    "unit": 54,
+    "unitTitle": "多线程与内存序",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于多线程同步与内存序，下列说法正确的有？",
+    "options": [
+      "`std::atomic` 的操作默认是 `seq_cst`，最强也最贵；`relaxed` 必须显式写",
+      "条件变量必须配 `unique_lock`，并用带谓词的 `wait` 防止虚假唤醒",
+      "`std::thread` 析构时仍 joinable 会调用 `std::terminate`；`std::jthread` 析构自动 join",
+      "`volatile` 能提供原子性和内存序，可以当作多线程同步手段",
+      "`relaxed` 计数可以顺带同步其他共享变量的可见性"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "并发正确性靠建立 happens-before：锁、原子操作、线程 start/join 都是合法手段；没有这层关系的读写就是数据竞争，属于 UB。`volatile` 只阻止编译器优化掉访问，不提供原子性与内存序。`relaxed` 只保证该变量自身的原子性和修改序，不能用来发布指针或标志等其他数据。",
+    "src": "深读.md#unit-54"
+  },
+  {
+    "id": "d5-010",
+    "cat": "d5",
+    "unit": 54,
+    "unitTitle": "多线程与内存序",
+    "type": "fill",
+    "diff": 1,
+    "q": "`std::atomic` 的操作在未显式指定内存序时默认使用 ____（它是约束最强、开销也最大的内存序）。",
+    "answer": ["seq_cst", "memory_order_seq_cst", "std::memory_order_seq_cst", "顺序一致性"],
+    "explain": "默认就是 `seq_cst`，不是 `relaxed`；所有 `seq_cst` 操作存在单一全局总序，最容易推理但最贵。要降级必须显式写，例如只做计数时用 `memory_order_relaxed`。`consume` 在标准中已不推荐，实际讨论集中在 `relaxed`/`acquire`/`release`/`acq_rel`/`seq_cst`。",
+    "src": "深读.md#unit-54"
+  }
+]

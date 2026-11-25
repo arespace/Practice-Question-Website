@@ -1,0 +1,156 @@
+[
+  {
+    "id": "d4-x41",
+    "cat": "d4",
+    "unit": 41,
+    "unitTitle": "`struct` 与 `class` 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "某团队用 `class` 定义派生类却忘了写继承方式，代码如下（C++17）。请指出 `(2)`、`(3)` 两行能否编译，并说明 `sizeof(Pub)` 与 `sizeof(Priv)` 是否相同。\n```cpp\nstruct Base { int a = 1; };\nstruct Pub : Base {};\nclass  Priv : Base {};\n\nint main() {\n    Pub p;\n    p.a = 2;              // (1)\n    Priv v;\n    v.a = 3;              // (2)\n    Base* pb = &v;        // (3)\n    std::cout << sizeof(Pub) << sizeof(Priv) << std::endl;\n}\n```",
+    "ref": "`(2)` 编译失败：`class Priv : Base` 默认是 private 继承，`Base::a` 在 `Priv` 里被降为 private，类外 `v.a` 不可访问。`(3)` 也编译失败：private 继承下 `Base` 是私有基类，类外不能把 `Priv*` 隐式转成 `Base*`（报 `'Base' is an inaccessible base of 'Priv'`），这正是“派生对象塞不进多态容器”的根本原因。`(1)` 正常，`struct Pub : Base` 默认 public 继承。`sizeof(Pub)` 与 `sizeof(Priv)` 都是 4：继承方式只改访问级别，不改对象布局与 ABI，两个类都只含一个 `int`。",
+    "explain": "关键是分清“默认继承方式”和“对象布局”。`class` 的默认继承是 private、`struct` 是 public，这是两个关键字仅有的默认值差异之一。能不能向上转型由基类的可访问性决定，private/protected 继承都会在类外失败；而对象大小只由成员和虚函数决定，与继承方式无关。常见误读是看到 `sizeof` 相同就以为 private 继承也和 public 一样能用，实际访问与转换已全被卡住。"
+  },
+  {
+    "id": "d4-x42",
+    "cat": "d4",
+    "unit": 42,
+    "unitTitle": "C++ 面向对象的三大特性",
+    "type": "code",
+    "diff": 2,
+    "q": "下面用公有继承 `std::vector<int>` 实现栈，接口因此被大量泄漏。请先写出 `main` 的输出，再用组合改写 `IntStack`，只保留 `push`/`pop`/`top`/`empty`/`size`，并说明为什么这里不该用继承。\n```cpp\nclass IntStack : public std::vector<int> {\npublic:\n    void push(int v) { push_back(v); }\n    int  pop() { int v = back(); pop_back(); return v; }\n};\n\nint main() {\n    IntStack s;\n    s.push(1);\n    s.insert(s.begin(), 0);   // 基类接口，绕过栈语义\n    s.erase(s.begin());\n    s[0] = 99;                // 同样绕过\n    std::cout << s.size() << std::endl;\n}\n```",
+    "ref": "输出 `1`：序列依次是 `[1]` → 插入 0 得 `[0,1]` → 删除首元素回 `[1]` → `s[0]=99` → size 为 1。改写为组合：\n```cpp\nclass IntStack {\npublic:\n    void push(int v) { v_.push_back(v); }\n    int  pop() { int v = v_.back(); v_.pop_back(); return v; }\n    int& top() { return v_.back(); }\n    bool empty() const { return v_.empty(); }\n    std::size_t size() const { return v_.size(); }\nprivate:\n    std::vector<int> v_;\n};\n```\n组合版不再暴露 `insert`/`erase`/`operator[]`，栈“只能在一端进出”的不变量由类型强制保证。继承只在“派生类确实是基类的一种”时成立，而 `IntStack` 不是 `vector`，它只需要 vector 的实现，应改为成员。",
+    "explain": "判分要点有三：输出算对；改写后没有任何基类容器接口外泄（不出现 `public std::vector`）；能说出 is-a 与“复用实现”的区别。公有继承 vector 会让调用方直接 `insert`/`erase`/`operator[]`，绕过栈语义，一旦后续把底层换成 `std::deque` 或加容量限制，对外接口全都要跟着改。组合只在需要暴露的操作上耦合，替换底层容器不影响调用方，这就是“组合优于继承”的具体理由。"
+  },
+  {
+    "id": "d4-x43",
+    "cat": "d4",
+    "unit": 43,
+    "unitTitle": "访问修饰符",
+    "type": "code",
+    "diff": 3,
+    "q": "阅读下面的代码（C++17）。`using Base::pub;` 让 `(1)` 能编译，但 `(2)` 仍然失败。请说明两行的结果与原因，并指出在 `D` 的成员函数内部能访问哪些基类成员。\n```cpp\nclass Base {\npublic:\n    int pub = 1;\nprotected:\n    int prot = 2;\nprivate:\n    int priv = 3;\n};\n\nclass D : protected Base {\npublic:\n    using Base::pub;\n    int sum() const { return pub + prot; }\n};\n\nvoid take(const Base&) {}\n\nint main() {\n    D d;\n    std::cout << d.pub << d.sum() << std::endl;  // (1)\n    take(d);                                     // (2)\n}\n```",
+    "ref": "`(1)` 编译通过，输出 `13`：`using Base::pub;` 把 `pub` 在 `D` 中重新声明为 public，`sum()` 内部还能访问降级后的 protected 成员 `prot`。`(2)` 编译失败：`protected` 继承使 `Base` 成为 `D` 的 protected 基类，类外不能把 `D` 隐式转成 `const Base&`（报 `'Base' is an inaccessible base of 'D'`）。注意 `using` 只改成员名字的访问级别，不会恢复基类的可访问性，所以成员能访问、向上转型仍然不行。`D` 的成员函数内可访问 `pub` 与 `prot`，`priv` 在任何继承方式下都不可见。",
+    "explain": "这道题把三件事拆开考：成员访问级别、继承方式降级、基类可访问性。`protected` 继承把 public 与 protected 成员统一降为 protected，派生类内部照常访问；但“能不能转成基类指针/引用”看的是基类本身的可访问性，与 `using` 声明无关。常见误解是以为 `using` 提升成员后就能当 public 基类用，实际多态容器和 `Base&` 形参仍然编不过。判分要点是分清 `d.pub` 与 `take(d)` 两处失败原因不同。"
+  },
+  {
+    "id": "d4-x44",
+    "cat": "d4",
+    "unit": 44,
+    "unitTitle": "多重继承与菱形继承",
+    "type": "code",
+    "diff": 2,
+    "q": "两个接口各自声明了同名虚函数，最派生类没有重写。请说明三处调用分别的结果（能编译的输出什么、不能编译的报什么错），并给出两种消除二义性的写法。\n```cpp\nstruct IA {\n    virtual ~IA() = default;\n    virtual void f() { std::cout << \"IA\"; }\n};\nstruct IB {\n    virtual ~IB() = default;\n    virtual void f() { std::cout << \"IB\"; }\n};\n\nstruct D : IA, IB {};\n\nint main() {\n    D d;\n    IA* a = &d;\n    IB* b = &d;\n    a->f();          // (1)\n    b->f();          // (2)\n    d.f();           // (3)\n    std::cout << std::endl;\n}\n```",
+    "ref": "`(1)` 输出 `IA`，`(2)` 输出 `IB`：经各自的基类指针调用目标唯一，动态绑定到各自版本，没有二义。`(3)` 编译失败，报 `request for member 'f' is ambiguous`：名字查找在 `D` 的作用域里同时找到 `IA::f` 与 `IB::f`，属于编译期二义。消除方式有两种：调用点写 `d.IA::f();` 显式限定，或在 `D` 中定义 `void f() override { IA::f(); }`——后者让 `D` 拥有唯一的 `f`，经 `D`/`IA*`/`IB*` 调用都会进 `D::f`，也顺便统一了两个接口的实现。",
+    "explain": "二义性来自名字查找，与虚函数机制无关：只要最派生类作用域里存在多个同名候选就报错。用多重继承组合纯接口时这条规则最容易被忽略——两个接口恰好有同名函数，`d.f()` 立刻编不过。在 `D` 中 `override` 是更彻底的解法，因为一个 `D::f` 会同时覆盖两份虚函数，而 `d.IA::f()` 只解决当前这一行的调用。判分要点：两处指针调用不二义、`d.f()` 是编译错误、两种修法说清其一即可。"
+  },
+  {
+    "id": "d4-x45",
+    "cat": "d4",
+    "unit": 45,
+    "unitTitle": "重载与重写的区别",
+    "type": "code",
+    "diff": 3,
+    "q": "基类与派生类在重写同一个虚函数时各自给了不同的默认实参。请写出 `main` 的输出，并解释为什么会出现两种不同的参数值，最后说明工程上应该怎么写。\n```cpp\nstruct Base {\n    virtual ~Base() = default;\n    virtual void f(int x = 1) const { std::cout << \"B\" << x; }\n};\nstruct D : Base {\n    void f(int x = 2) const override { std::cout << \"D\" << x; }\n};\n\nint main() {\n    D d;\n    const Base* p = &d;\n    p->f();\n    d.f();\n    std::cout << std::endl;\n}\n```",
+    "ref": "输出 `D1D2`。两次都执行 `D::f` 的函数体（虚函数动态绑定），但默认实参按静态类型取：`p->f()` 的静态类型是 `const Base*`，用 `Base` 声明的 `1`；`d.f()` 的静态类型是 `D`，用 `D` 声明的 `2`。默认实参不参与函数签名，也不参与虚函数分派，只在调用点由编译器按静态类型填入。正确做法是重写时不要改默认值（保持一致），或用非虚接口/重载把默认值集中在一处，避免同一个调用因写法不同而产生两种行为。",
+    "explain": "考点是“默认实参静态绑定”。编译器先在调用点按静态类型确定实参，然后才通过 vptr 找函数体，两件事分开发生。这也是重写时禁止改默认值的工程理由：调用方看到的默认值取决于它手里的指针类型，经基类指针调用和经派生类对象调用会得到不同结果，且没有任何警告。判分要点：输出必须精确到字符顺序 `D1D2`，并能说清“函数体动态绑定、默认值静态绑定”。"
+  },
+  {
+    "id": "d4-x46",
+    "cat": "d4",
+    "unit": 46,
+    "unitTitle": "构造函数与析构函数",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的类型在构造函数体里抛出异常，成员是带打印语句的对象。请写出 `main` 的完整输出，并解释 `~T()` 为什么没有被调用、哪些成员被析构了。\n```cpp\nstruct M {\n    const char* n;\n    explicit M(const char* s) : n(s) { std::cout << '+' << n; }\n    ~M() { std::cout << '-' << n; }\n};\n\nstruct T {\n    M a{\"a\"};\n    M b{\"b\"};\n    T() { throw 1; }\n};\n\nint main() {\n    try { T t; } catch (int) {}\n    std::cout << \" done\" << std::endl;\n}\n```",
+    "ref": "输出 `+a+b-b-a done`。成员按声明顺序构造：先 `a`（打印 `+a`）再 `b`（`+b`），随后进入 `T` 的构造函数体并抛异常。此时 `T` 对象还没构造完成，所以 `~T()` 不会执行，但已构造完成的两个成员会按逆序析构，依次打印 `-b`、`-a`。标准保证构造失败时已完成的子对象被正确销毁，不会泄漏。作为对照，如果把 `b` 成员的构造也改成抛异常，则只会打印 `+a-a`：只有已经构造完成的子对象被销毁。",
+    "explain": "考点是“构造抛异常时的清理边界”。标准只销毁已经完整构造好的子对象，构造中的对象本身不执行析构。成员按声明顺序构造、严格逆序销毁，所以输出必然是 `+a+b` 后接 `-b-a`，与初始化列表的书写顺序无关。易错点有两个：以为异常会调用 `~T()`；或者以为构造顺序会跟着初始化列表走。判分要点是输出字符顺序正确，且能解释“为什么 `~T` 不执行”。"
+  },
+  {
+    "id": "d4-x47",
+    "cat": "d4",
+    "unit": 47,
+    "unitTitle": "构造函数的种类",
+    "type": "code",
+    "diff": 3,
+    "q": "下面这个句柄类自己管理裸指针，并额外声明了一个移动构造函数。请判断 `(1)` 那行能否编译、`(2)(3)` 的运行结果，并说明原因与两种修复方式。\n```cpp\nstruct Box {\n    int* p;\n    explicit Box(int v) : p(new int(v)) {}\n    ~Box() { delete p; }\n    Box(Box&& o) noexcept : p(o.p) { o.p = nullptr; }\n};\n\nint main() {\n    Box a(1);\n    Box b = a;                       // (1)\n    Box c = std::move(a);            // (2)\n    std::cout << *c.p << std::endl;  // (3)\n}\n```",
+    "ref": "`(1)` 编译失败，报 `use of deleted function`，指向被隐式删除的 `Box(const Box&)`：用户声明移动构造函数后，编译器不再隐式生成拷贝构造，拷贝构造被定义为 deleted。`(2)(3)` 合法：`std::move(a)` 选中移动构造，`c` 接管指针，`a.p` 被置空，输出 `1`。修复方式有两种：一是补齐五法则，显式写深拷贝 `Box(const Box& o) : p(o.p ? new int(*o.p) : nullptr) {}` 与拷贝赋值；二是改走零法则，把成员换成 `std::unique_ptr<int>`，五个特殊成员全部交给编译器生成。",
+    "explain": "考点是特殊成员的隐式生成规则，而不是移动本身。规则是：声明了拷贝/移动中的任意一个，另一组会被隐式删除（这里是声明移动导致拷贝 deleted）。很多人以为“只写移动构造更现代”，结果老代码里 `Box b = a;` 直接编不过，而且报错指向调用点而非构造函数。另一个易错点是修复时只补拷贝构造不补拷贝赋值，导致赋值仍然被删除，五法则要求五个一起审视。"
+  },
+  {
+    "id": "d4-x48",
+    "cat": "d4",
+    "unit": 48,
+    "unitTitle": "虚函数与虚函数表",
+    "type": "code",
+    "diff": 3,
+    "q": "同一个派生对象上有四种写法调用成员函数：经基类引用调虚函数、显式限定调基类版本、以及两次调用非虚函数。请写出输出，并说明后三种写法各自为什么是这个结果。\n```cpp\nstruct Base {\n    virtual ~Base() = default;\n    virtual const char* tag() const { return \"B\"; }\n    void plain() const { std::cout << \"P\"; }\n};\nstruct D : Base {\n    const char* tag() const override { return \"D\"; }\n    void plain() const { std::cout << \"p\"; }\n};\n\nint main() {\n    D d;\n    const Base& r = d;\n    std::cout << r.tag() << d.Base::tag();\n    r.plain();\n    d.plain();\n    std::cout << std::endl;\n}\n```",
+    "ref": "输出 `DBPp`。`r.tag()` 经基类引用调用虚函数，走 vtable 动态绑定到 `D::tag`，打印 `D`。`d.Base::tag()` 用限定名显式指定基类版本，编译器生成直接调用、绕过 vptr，打印 `B`，这是强制调用被重写基类实现的唯一写法。`plain()` 不是虚函数，两处都是静态绑定：`r` 的静态类型是 `const Base&`，调 `Base::plain` 打印 `P`；`d` 的静态类型是 `D`，调 `D::plain` 打印 `p`。",
+    "explain": "考点是动态绑定的三个前提与限定名的作用。动态绑定要求虚函数、签名一致、经指针/引用调用，缺一条就退回静态绑定；`plain` 缺 `virtual`，所以即使通过引用也调基类版本。`Base::tag()` 属于“显式限定调用”，标准规定它直接走静态决议，是调试和 NVI 里特意调用基类实现的手段。判分要点：四个字符顺序 `DBPp` 必须正确，且能区分“非虚函数”和“限定名”两种不同的静态绑定原因。"
+  },
+  {
+    "id": "d4-x49",
+    "cat": "d4",
+    "unit": 49,
+    "unitTitle": "虚函数与对象模型进阶",
+    "type": "code",
+    "diff": 3,
+    "q": "多态基类下做一次失败的向下转换。请写出输出，并说明引用版与指针版失败时的差异，以及把 `dynamic_cast` 换成 `static_cast` 会发生什么。\n```cpp\nstruct B  { virtual ~B() = default; };\nstruct D1 : B { int x = 1; };\nstruct D2 : B { int y = 2; };\n\nint main() {\n    D1 d1;\n    B& b = d1;\n    try {\n        D2& r = dynamic_cast<D2&>(b);\n        std::cout << \"ok\" << r.y;\n    } catch (const std::bad_cast&) {\n        std::cout << \"bad\";\n    }\n    D2* p = dynamic_cast<D2*>(&b);\n    std::cout << (p == nullptr) << std::endl;\n}\n```",
+    "ref": "输出 `bad1`。`b` 的动态类型是 `D1` 而不是 `D2`，向下转换失败：引用版 `dynamic_cast<D2&>` 失败时抛 `std::bad_cast`，被 catch 捕获后打印 `bad`，`r.y` 不会执行；指针版 `dynamic_cast<D2*>` 失败返回 `nullptr`，`p == nullptr` 为真，打印 `1`。若换成 `static_cast<D2*>(&b)`：因为 `B` 是 `D2` 的基类，向下 `static_cast` 能编译通过，但它不做运行期检查，返回的是指向 `D1` 对象的 `D2*`，访问 `p->y` 就是 UB。",
+    "explain": "考点是 `dynamic_cast` 的两种失败形态与 `static_cast` 的区别。`dynamic_cast` 依赖 RTTI，沿 vtable 找到类型信息后判断目标是否可达；指针版失败给空指针，引用版没有“空引用”这种表示只能抛异常。`static_cast` 只做编译期可判定的偏移调整，向下转换永远“成功”，风险留到运行时。易错点是拿到指针不判空就解引用，或对没有虚函数的类型做 `dynamic_cast`（编译期直接报“源类型不是多态类型”）。"
+  },
+  {
+    "id": "d5-x50",
+    "cat": "d5",
+    "unit": 50,
+    "unitTitle": "模板实现一定要写在头文件中吗",
+    "type": "code",
+    "diff": 3,
+    "q": "下面这段模板只有一个成员用到容器的接口，但加了显式实例化后整份代码都编译不过。请说明报错内容与原因，并给出两种修复方式。\n```cpp\ntemplate <class T>\nstruct Box {\n    T v_;\n    void show() const { std::cout << v_; }\n    void sizeOf() const { std::cout << v_.size(); }\n};\n\ntemplate struct Box<int>;   // 显式实例化\n\nint main() {\n    Box<int> b{1};\n    b.show();\n    std::cout << std::endl;\n}\n```",
+    "ref": "编译失败，报 `request for member 'size' in 'v_', which is of non-class type 'const int'`（Clang 类似 `no member named 'size' in 'int'`）。原因是 `template struct Box<int>;` 是显式实例化定义，会实例化该特化的所有已定义的非模板成员，包括 `main` 从未调用的 `sizeOf()`，而 `int` 没有 `size()`。修复方式：一是删掉这行显式实例化，改回隐式实例化（只实例化真正用到的成员，程序正常输出 `1`）；二是把 `sizeOf` 改成成员模板 `template <class U = T> void sizeOf() const`，成员模板不会被类模板的显式实例化带上，或在函数体内用 `if constexpr` 按类型能力分支。",
+    "explain": "考点是显式实例化的粒度：它按“整个类特化”生成，所有已定义的非模板成员一起实例化，没被调用也一样。这与隐式实例化按需生成完全不同，所以常出现“我只用了 `show`，为什么报 `sizeOf` 的错”。第二种修法还涉及一点：函数模板不能偏特化，但类模板偏特化、成员模板、`if constexpr` 都能用来做按类型分支。判分要点：错误定位到 `sizeOf` 与 `int`，修复至少给出一种可行写法。"
+  },
+  {
+    "id": "d5-x51",
+    "cat": "d5",
+    "unit": 51,
+    "unitTitle": "模板与编译期",
+    "type": "code",
+    "diff": 2,
+    "q": "同一个类模板同时写了主模板、指针偏特化和 `int` 全特化。请写出三个 `name` 的输出，并说明 `Trait<int*>` 为什么命中偏特化，而不是主模板。\n```cpp\ntemplate <class T>\nstruct Trait { static constexpr const char* name = \"general\"; };\n\ntemplate <class T>\nstruct Trait<T*> { static constexpr const char* name = \"pointer\"; };\n\ntemplate <>\nstruct Trait<int> { static constexpr const char* name = \"int\"; };\n\nint main() {\n    std::cout << Trait<int*>::name << ' '\n              << Trait<int>::name  << ' '\n              << Trait<double>::name << std::endl;\n}\n```",
+    "ref": "输出 `pointer int general`。`Trait<int*>` 匹配偏特化 `Trait<T*>`（`T` 推出 `int`），偏特化比主模板更特化，重载决议优先选它；`Trait<int>` 匹配全特化，全特化是“模板参数全部指定”的普通定义，优先级最高；`Trait<double>` 不匹配任何特化，落回主模板。注意 `Trait<int*>` 与 `Trait<int>` 是两个不同特化：前者命中 `T*` 模式，后者命中 `int` 模式，互不冲突。C++17 起 `static constexpr` 数据成员隐式 inline，不需要再写类外定义。",
+    "explain": "考点是特化选择的优先级与模式匹配：全特化 > 偏特化 > 主模板；同一层按“更特化”程度选，匹配不上就往上退。`Trait<int*>` 走偏特化，是因为 `T*` 模式能匹配且比主模板更具体，编译器不需要看 `name` 的值就能决定。易错点是把偏特化当成“部分指定实参”的语法糖——它其实是一族带模板参数的新定义；也常有人误以为函数模板也能偏特化（标准不允许）。"
+  },
+  {
+    "id": "d5-x52",
+    "cat": "d5",
+    "unit": 52,
+    "unitTitle": "移动语义与完美转发",
+    "type": "code",
+    "diff": 2,
+    "q": "`std::move` 只是一个类型转换，并不保证一定发生移动。请写出输出，并解释为什么对 const 对象调用 `std::move(b)` 反而走了拷贝构造，以及这在容器里意味着什么。\n```cpp\nstruct Probe {\n    Probe() = default;\n    Probe(const Probe&) { std::cout << \"copy \"; }\n    Probe(Probe&&) noexcept { std::cout << \"move \"; }\n};\n\nint main() {\n    Probe a;\n    const Probe b;\n    Probe c = std::move(a);\n    Probe d = std::move(b);\n    std::cout << std::endl;\n}\n```",
+    "ref": "输出 `move copy `。`std::move(a)` 把左值 `a` 转成 `Probe&&`，能绑定到移动构造 `Probe(Probe&&)`，打印 `move`。`b` 的类型是 `const Probe`，`std::move(b)` 得到的是 `const Probe&&`，而移动构造的参数是非 const 的 `Probe&&`，无法绑定；重载决议只能选 `Probe(const Probe&)`，打印 `copy`。所以移动的前提是“对象不是 const”，被 const 锁住的成员或容器元素永远只能拷贝，这是模板代码里常见的性能陷阱，写 `std::move` 也救不回来。",
+    "explain": "考点是值类别与 cv 限定同时参与重载决议。`std::move` 只把表达式无条件转成右值引用类型，不改变 const 属性；`const T&&` 与 `T&&` 不是同一类型，前者绑不到移动构造。同理，`const` 成员会让整个类无法移动，`const` 元素放进 `vector` 后扩容也只能拷贝。判分要点：输出的两个词与顺序必须正确，理由要落在“const 导致 `const T&&` 绑不上 `T&&`”，而不是笼统说“const 不能移动”。"
+  },
+  {
+    "id": "d5-x53",
+    "cat": "d5",
+    "unit": 53,
+    "unitTitle": "STL 容器复杂度与迭代器失效",
+    "type": "code",
+    "diff": 3,
+    "q": "下面在 `deque` 头部和尾部插入后，继续使用事先保存的引用、指针与迭代器。请写出输出，说明哪一样还安全，并把容器换成 `vector` 后同样写法会怎样。\n```cpp\nstd::deque<int> d{1, 2, 3};\nint& ref = d[1];\nint* ptr = &d[1];\nauto it  = d.begin() + 1;\n\nd.push_front(0);\nd.push_back(4);\n\nstd::cout << ref << ' ' << (ptr == &d[2]) << ' ' << d.size() << std::endl;\n(void)it;   // it 还能用吗\n```",
+    "ref": "输出 `2 1 5`。`deque` 在头部或尾部插入会失效所有迭代器，但对已有元素的引用和指针没有影响：`ref` 仍指原元素 `2`（现在下标为 2），`ptr` 与 `&d[2]` 相等，所以第二项为 `1`；元素总数 5。迭代器 `it` 已经失效，不能再解引用或自增。换成 `vector`：没有 `push_front`，只能 `insert(begin())`，且任何导致扩容的插入都会重新分配，`ref`/`ptr` 一起悬垂，继续使用是 UB（ASan 会报 heap-use-after-free）。",
+    "explain": "考点是“迭代器失效 ≠ 引用失效”。`deque` 是分块存储，头尾插入只需新增块或调整块表，旧元素不搬，所以引用稳定；但迭代器记录的是块内位置，标准明确规定全部失效。`vector` 是连续存储，扩容即整块搬迁，迭代器、引用、指针三样一起失效。判分要点：数值 `2 1 5` 与“迭代器失效/引用有效”的区分必须说对，换成 vector 后要指出悬垂，而不是“也一样能用”。"
+  },
+  {
+    "id": "d5-x54",
+    "cat": "d5",
+    "unit": 54,
+    "unitTitle": "多线程与内存序",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的函数创建了一个后台线程后立刻返回，主线程随后继续打印。请说明程序的实际运行结果、`after` 是否会被打印，并给出两种正确写法。\n```cpp\n#include <chrono>\n#include <iostream>\n#include <thread>\n\nvoid spawn() {\n    std::thread t([] {\n        std::this_thread::sleep_for(std::chrono::milliseconds(50));\n    });\n}\n\nint main() {\n    spawn();\n    std::cout << \"after\" << std::endl;\n}\n```",
+    "ref": "程序会 abort，`after` 不会打印。`spawn` 返回时局部对象 `t` 析构，此时它仍处于 joinable 状态（既没 `join` 也没 `detach`），`std::thread` 的析构函数按标准调用 `std::terminate`，进程直接终止，`main` 里后续语句不再执行。正确写法有两种：一是在 `spawn` 返回前调用 `t.join()`（等待线程结束）或 `t.detach()`（分离，需自行保证线程不访问已销毁的对象）；二是改用 C++20 的 `std::jthread`，它在析构时自动 `join`。用 C++17 时也可以自己包一个 RAII guard。",
+    "explain": "考点是线程对象的生命周期契约：`std::thread` 是“必须有人负责收尾”的句柄，析构时还 joinable 就是程序员的错误，标准用 `std::terminate` 立刻暴露。这与“线程会不会自己结束”无关，哪怕线程早就跑完，只要没 join/detach 仍然会 terminate。真实工程里最典型的触发方式是异常路径提前返回，漏掉 `join`。判分要点：必须答“不打印 after、程序 terminate”，修复方案给出 join/detach 或 jthread 之一并说明差异。"
+  }
+]

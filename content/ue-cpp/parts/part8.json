@@ -1,0 +1,462 @@
+[
+  {
+    "id": "ue7-001",
+    "cat": "ue7",
+    "unit": 41,
+    "unitTitle": "Q41 三种 RPC 的区别",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 Server / Client / NetMulticast 三种 RPC 的调用者与收件人，下列哪些说法正确？（多选）",
+    "options": [
+      "Server RPC 由拥有该 Actor 的客户端调用，在服务器上执行",
+      "Client RPC 由服务器调用，只发给该 Actor 的 Owner 连接",
+      "NetMulticast 由服务器广播给所有相关客户端，并在服务器本地也执行一次",
+      "客户端调用 NetMulticast 会把消息转发给服务器以及其他客户端",
+      "Client RPC 会在拥有者客户端和所有其他客户端上各执行一次"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "三种宏固定的是方向与收件人：Server 向上只接受 owning client 的调用，Client 向下只发给 Actor 的 Owner 连接，Multicast 由服务器广播且在服务器本地也跑一遍。客户端调 Multicast 只在本机执行一次，不会转发，想让所有人看到必须由服务器发起；Client RPC 想覆盖所有玩家只能改用 Multicast 或属性同步。",
+    "src": "深读.md#ue-unit-41"
+  },
+  {
+    "id": "ue7-002",
+    "cat": "ue7",
+    "unit": 41,
+    "unitTitle": "Q41 三种 RPC 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "客户端按下开火键后 `Server_Fire` 完全没有反应，也不报错。阅读下面片段，指出至少两处缺失并写出修正：\n\n// AMyWeapon.h\nUCLASS()\nclass AMyWeapon : public AActor\n{\n    GENERATED_BODY()\npublic:\n    AMyWeapon() {}\n\n    UFUNCTION(Server, Reliable)\n    void Server_Fire();\n};\n\n// 客户端输入里直接调用\nServer_Fire();",
+    "ref": "① 构造函数里补 `bReplicates = true;`，Actor 不复制就没有 RPC 的落点；② 装备时补 `Weapon->SetOwner(GetController())`（设为角色或 PlayerController），让 Server RPC 有 owning connection；③ 实现要写在 `Server_Fire_Implementation()` 里，需要防作弊再配 `Server_Fire_Validate()`。缺任何一条都会静默失败，只在 `LogNet Verbose` 里留痕。",
+    "explain": "标了 RPC 宏不等于一定发得出去：还要 Actor 已复制、接收端已创建该 Actor，Server/Client 还依赖 Owner 链。没有 Owner 时路由找不到 owning connection，表现为“按了没反应”而不抛异常，所以排查顺序是复制状态、Owner、端与时序。",
+    "src": "深读.md#ue-unit-41"
+  },
+  {
+    "id": "ue7-003",
+    "cat": "ue7",
+    "unit": 42,
+    "unitTitle": "Q42 属性同步是怎么做的",
+    "type": "single",
+    "diff": 2,
+    "q": "一个 `UPROPERTY(Replicated)` 的 `float Health` 在服务器改值后客户端始终不同步，日志里也没有任何报错。按原文，最可能的原因是？",
+    "options": [
+      "漏了在 `GetLifetimeReplicatedProps` 里用 `DOREPLIFETIME` 注册",
+      "客户端没有先调用 `Server_SetHealth` 上报",
+      "`Health` 没有标 `BlueprintReadWrite`，所以引擎不会同步",
+      "`Health` 没有设置成 `COND_InitialOnly`"
+    ],
+    "answer": [0],
+    "explain": "`UPROPERTY(Replicated)` 只是声明意图，必须在 `GetLifetimeReplicatedProps` 里 `DOREPLIFETIME` 注册，引擎才会按表比较字段；漏注册就是永远不同步且不报错。客户端改属性本来就不会回传服务器，加 Server RPC 不是同步的前提；蓝图可见性与网络注册无关，`COND_InitialOnly` 反而会只发初始同步。",
+    "src": "深读.md#ue-unit-42"
+  },
+  {
+    "id": "ue7-004",
+    "cat": "ue7",
+    "unit": 42,
+    "unitTitle": "Q42 属性同步是怎么做的",
+    "type": "code",
+    "diff": 2,
+    "q": "下面代码在客户端扣血后客户端 UI 会刷新，但服务器自己那一端的 UI 一直不动。说明原因并给出修改：\n\nUPROPERTY(ReplicatedUsing = OnRep_Health)\nfloat Health = 100.f;\n\nUFUNCTION() void OnRep_Health();\n\nvoid AMyCharacter::ApplyDamage(float Damage)\n{\n    if (!HasAuthority()) { return; }\n    Health = FMath::Max(0.f, Health - Damage);\n}\n\nvoid AMyCharacter::OnRep_Health()\n{\n    RefreshHealthUI(Health);\n}",
+    "ref": "服务器修改属性不会触发自己的 OnRep，只有在客户端收到新值后才回调。修改：在 `ApplyDamage` 改完 `Health` 后手动调一次 `RefreshHealthUI(Health);`；同时把 UI 刷新抽成幂等函数，`BeginPlay` 主动调一次、`OnRep_Health` 里也调，避免押在“首次同步会不会触发 OnRep”上。另外确认 `GetLifetimeReplicatedProps` 已调 `Super` 并 `DOREPLIFETIME(AMyCharacter, Health)`。",
+    "explain": "OnRep 是客户端收到新值后的表现钩子，服务器侧不触发，所以“服务器 UI 不刷新”不是同步坏了而是漏了本地表现调用。首次同步是否触发 OnRep 随版本和配置不定，因此初始化要写成幂等刷新函数主动调；OnRep 里也不该改需要服务器认可的权威状态。",
+    "src": "深读.md#ue-unit-42"
+  },
+  {
+    "id": "ue7-005",
+    "cat": "ue7",
+    "unit": 43,
+    "unitTitle": "Q43 Authority 和 Ownership 分别是什么",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 Authority、Ownership 与 Instigator，下列哪些说法与原文一致？（多选）",
+    "options": [
+      "`HasAuthority()` 在服务器上的权威副本和单机模式下都为真",
+      "Owner 决定 Server/Client RPC 的路由与相关性收件人，Instigator 只做玩法归因、不参与路由",
+      "自主代理与模拟代理由引擎按“是否被本地玩家控制”分配，项目代码只能读 `GetLocalRole()` 判断",
+      "给投射物设置 Instigator 之后，它的 Server RPC 就能找到连接",
+      "Client RPC 会发给所有客户端，而不只是 Actor 的 Owner"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "Authority 指服务器上那份权威副本，单机也为真；Owner 沿链找到网络连接，决定 RPC 路由与相关性，Instigator 只表示“这件事算谁干的”；代理角色是引擎分配的，代码只能读不能选。设 Instigator 不参与路由，Client RPC 也只发给 Owner，所以后两项是原文列出的常见误解。",
+    "src": "深读.md#ue-unit-43"
+  },
+  {
+    "id": "ue7-006",
+    "cat": "ue7",
+    "unit": 43,
+    "unitTitle": "Q43 Authority 和 Ownership 分别是什么",
+    "type": "code",
+    "diff": 2,
+    "q": "补全下面两个函数，使武器上的 Server RPC 有落点，且输入只由本地控制的玩家发起：\n\nvoid AMyCharacter::EquipWeapon(AMyWeapon* Weapon)\n{\n    if (!Weapon) { return; }\n    // TODO: 只有服务器建立关系；分别设置 RPC 路由用的 Owner 与玩法归因用的 Instigator\n}\n\nvoid AMyCharacter::TryInteract()\n{\n    // TODO: 只在本地玩家上产生输入，并上报 Server RPC\n}",
+    "ref": "`EquipWeapon`：先 `if (!HasAuthority()) { return; }`，再 `Weapon->SetOwner(this);` 与 `Weapon->SetInstigator(this);`——Owner 负责 RPC 路由与相关性，Instigator 只负责伤害归因，两者必须分别设置。`TryInteract`：`if (!IsLocallyControlled()) { return; }` 后调 `Server_Interact();`，服务器在 `Server_Interact_Implementation` 里再用 `HasAuthority()` 校验一次，不信任客户端。",
+    "explain": "Server RPC 要沿 Owner 链找到 owning connection，动态创建的武器不设 Owner 就会静默失败；把 Instigator 当 Owner 用会出现“伤害来源对了但 RPC 找不到连接”。输入逻辑只放在 `IsLocallyControlled()` 分支，模拟代理上没有本地输入，读出来是零。",
+    "src": "深读.md#ue-unit-43"
+  },
+  {
+    "id": "ue7-007",
+    "cat": "ue7",
+    "unit": 44,
+    "unitTitle": "Q44 客户端预测与回滚是怎么做的",
+    "type": "single",
+    "diff": 2,
+    "q": "关于客户端预测与回滚，下列说法与原文一致的是？",
+    "options": [
+      "服务器结果回来后，误差在阈值内只更新确认序号，超过阈值才回到权威状态并重放未确认输入",
+      "只要客户端先本地模拟过，服务器结果回来就必须立刻把位置改回服务器值",
+      "回滚只需要把位置改回服务器值，未确认的输入可以丢弃",
+      "扣钱、掉落、击杀判定这类逻辑最适合放到客户端先执行"
+    ],
+    "answer": [0],
+    "explain": "回滚的触发条件是误差超过项目阈值：阈值内只更新确认序号，超过才退回服务器状态；阈值太紧会频繁拉扯抖动，太松则长期脱节。只回滚不重放会让玩家感觉“吞输入”，必须把队列里未确认的输入重新模拟一遍；不可逆、依赖全局权威的逻辑不适合预测，只做乐观表现。",
+    "src": "深读.md#ue-unit-44"
+  },
+  {
+    "id": "ue7-008",
+    "cat": "ue7",
+    "unit": 44,
+    "unitTitle": "Q44 客户端预测与回滚是怎么做的",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的校正处理只把位置改回服务器值，玩家反馈“吞输入”。请补全正确写法，并说明为什么需要输入序号：\n\nvoid AMyPawn::Client_ApplyCorrection_Implementation(\n    FVector ServerLocation, uint32 AckedSeq)\n{\n    SetActorLocation(ServerLocation);\n}",
+    "ref": "先丢弃服务器已确认的输入：`UnackedInputs.RemoveAll([AckedSeq](const FMoveInput& In) { return In.Seq <= AckedSeq; });`；再 `SetActorLocation(ServerLocation);`；最后 `for (const FMoveInput& In : UnackedInputs) { ApplyMove(In); }` 重放。序号的意义是让客户端知道“服务器处理到哪一条”，从而只重放未确认部分，既不重复模拟也不丢输入。",
+    "explain": "回滚与重放必须成对出现，只改位置等于把玩家已经做出的输入吞掉。`AckedSeq` 之前的结果已被权威状态包含，重放它们会重复施加位移；之后的输入还没被服务器看到，必须重新模拟。日志里同时打 `AckedSeq` 和重放条数，能把“没回滚”和“回滚了但忘了重放”区分开。",
+    "src": "深读.md#ue-unit-44"
+  },
+  {
+    "id": "ue7-009",
+    "cat": "ue7",
+    "unit": 45,
+    "unitTitle": "Q45 状态同步和 RPC 怎么选",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于属性同步与 RPC 的选型，下列哪些说法正确？（多选）",
+    "options": [
+      "分界按语义：这个信息几秒后还有没有意义、晚加入的客户端需不需要知道",
+      "属性同步受 `NetUpdateFrequency` 节流、只收敛最终值，因此不能当事件总线用",
+      "位置变化频率太高，应走 CharacterMovement 的移动复制通道，而不是逐帧属性同步或 RPC",
+      "数据包越小的信息越该用 RPC，越大的越该用属性同步",
+      "用属性同步传开火，客户端能准确知道这一段时间连开了几枪"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "状态与事件的分界是语义而不是数据大小：状态要能被晚加入的客户端直接读到，事件只对当时在场的人有意义。属性同步会节流并只收敛最终值，客户端不知道“发生了几次”，把事件塞进去会丢掉计数；位置是特例，频率太高，交给 CharacterMovement 的移动复制通道压缩并配预测与平滑。",
+    "src": "深读.md#ue-unit-45"
+  },
+  {
+    "id": "ue7-010",
+    "cat": "ue7",
+    "unit": 45,
+    "unitTitle": "Q45 状态同步和 RPC 怎么选",
+    "type": "fill",
+    "diff": 1,
+    "q": "位置变化频率太高，逐帧属性同步或 RPC 都很浪费，UE 用 ____ 组件的移动复制通道压缩位置、旋转和移动模式，并配合预测与平滑。",
+    "answer": ["CharacterMovementComponent", "CharacterMovement", "UCharacterMovementComponent", "CharacterMovement 组件"],
+    "explain": "位置是属性同步与 RPC 之外的特例：它每帧都在变，逐帧同步既吃带宽又抖动。CharacterMovement 用专门的移动复制通道压缩位置、旋转和移动模式，并内置预测与平滑，所以自定义 Pawn 要高频移动时应优先复用移动组件。",
+    "src": "深读.md#ue-unit-45"
+  },
+  {
+    "id": "ue7-011",
+    "cat": "ue7",
+    "unit": 46,
+    "unitTitle": "Q46 网络相关性（Relevancy）是什么",
+    "type": "single",
+    "diff": 2,
+    "q": "关于网络相关性与 Dormancy，下列说法与原文一致的是？",
+    "options": [
+      "相关性是 per-connection 判定，决定客户端有没有这个 Actor、占不占带宽、能不能收到 RPC",
+      "相关性就是渲染裁剪，不在画面里的 Actor 一定不相关",
+      "Dormancy 会让 Actor 彻底断开，之后的 RPC 也无法送达",
+      "重写 `IsNetRelevantFor` 时不必调用 `Super`，自己写距离判断就够了"
+    ],
+    "answer": [0],
+    "explain": "相关性在服务器每次准备网络更新时按连接判定，结果是“建不建 channel”，与渲染裁剪是两件事：背后的队友可能不在画面里但仍然相关。Dormancy 只停止属性更新，RPC 通常仍可送达，唤醒要 `FlushNetDormancy`；重写 `IsNetRelevantFor` 必须先处理 Owner 与 `bAlwaysRelevant` 特例再 `return Super::...`，否则会把默认距离判定和 Owner 放行一起废掉。",
+    "src": "深读.md#ue-unit-46"
+  },
+  {
+    "id": "ue7-012",
+    "cat": "ue7",
+    "unit": 46,
+    "unitTitle": "Q46 网络相关性（Relevancy）是什么",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的拾取物在服务器改 `bAvailable` 后客户端毫无变化，且部分玩家自己的角色会莫名消失。指出两个问题并修正：\n\nAMyPickup::AMyPickup()\n{\n    bReplicates = true;\n    NetCullDistanceSquared = FMath::Square(5000.f);\n    SetNetDormancy(DORM_DormantAll);\n}\n\nbool AMyPickup::IsNetRelevantFor(const AActor* RealViewer, const AActor* ViewTarget, const FVector& SrcLocation) const\n{\n    return FVector::DistSquared(ViewTarget->GetActorLocation(), SrcLocation) < NetCullDistanceSquared;\n}\n\nvoid AMyPickup::SetAvailable(bool bNewAvailable)\n{\n    if (!HasAuthority()) { return; }\n    bAvailable = bNewAvailable;\n}",
+    "ref": "① `IsNetRelevantFor` 丢了 Owner 放行和默认规则：应先 `if (bAlwaysRelevant) { return true; }`、`if (IsOwnedBy(ViewTarget) || IsOwnedBy(RealViewer)) { return true; }`，最后 `return Super::IsNetRelevantFor(RealViewer, ViewTarget, SrcLocation);`。② 休眠中的 Actor 改了属性必须唤醒：在 `bAvailable = bNewAvailable;` 后补 `FlushNetDormancy();`。",
+    "explain": "自定义相关性直接返回自己的距离判断，会把引擎对 Owner 的放行一起覆盖，导致自己相关的东西被距离裁掉。Dormancy 只是让静止 Actor 停止属性更新，改值后不 `FlushNetDormancy` 客户端就永远收不到这次变化，这是“改了不动”的典型来源。",
+    "src": "深读.md#ue-unit-46"
+  },
+  {
+    "id": "ue7-013",
+    "cat": "ue7",
+    "unit": 47,
+    "unitTitle": "Q47 Reliable 和 Unreliable 怎么选",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于 Reliable、Unreliable 与属性同步的成本模型，下列哪些说法正确？（多选）",
+    "options": [
+      "Reliable 保证到达与顺序，但占用可靠窗口；大量堆积会队头阻塞，严重时可靠缓冲溢出并断开连接",
+      "RPC 默认是 Unreliable，只有漏了会出逻辑问题的事件才需要显式标 Reliable",
+      "属性同步语义上是可靠的最终一致，但不占用 RPC 的可靠窗口，受 `NetUpdateFrequency` 节流",
+      "全标 Reliable 最省事，既更安全又能降低带宽",
+      "降低带宽最有效的手段是先把所有表现类 RPC 都改成 Reliable"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "可靠通道是一条有序队列，每条消息都要等前面的确认，所以堆积会拖住整条队列，写满缓冲区还会断连；Unreliable 是“发出去就不管”，正好匹配可丢的高频表现。属性同步是持续比较后的最终一致，不占 RPC 的可靠窗口，只受 `NetUpdateFrequency` 节流，因此把表现全标 Reliable 既没省带宽又把可靠性预算花在了不重要的地方。",
+    "src": "深读.md#ue-unit-47"
+  },
+  {
+    "id": "ue7-014",
+    "cat": "ue7",
+    "unit": 47,
+    "unitTitle": "Q47 Reliable 和 Unreliable 怎么选",
+    "type": "fill",
+    "diff": 2,
+    "q": "带宽紧张时的处理顺序是：先裁掉不需要发的人（相关性 / Dormancy / 条件复制），再降 ____，然后量化，最后才考虑把可靠改成不可靠。",
+    "answer": ["NetUpdateFrequency", "网络更新频率", "Actor 的 NetUpdateFrequency", "NetUpdateFrequency（网络更新频率）"],
+    "explain": "原文给出的优先级是“裁人 → 降频 → 量化 → 最后才动可靠性”，因为前两步直接减少发送次数与对象数量，收益随规模放大。`NetUpdateFrequency` 控制 Actor 每秒最多被网络更新的次数，必要时配 `MinNetUpdateFrequency` 与 `NetPriority`；只降频不调相关性，远处 Actor 仍在占 channel。",
+    "src": "深读.md#ue-unit-47"
+  },
+  {
+    "id": "ue7-015",
+    "cat": "ue7",
+    "unit": 48,
+    "unitTitle": "Q48 网络同步常见坑有哪些",
+    "type": "multi",
+    "diff": 2,
+    "q": "按原文，下列哪些属于网络同步的常见坑或正确的现象判断？（多选）",
+    "options": [
+      "只在客户端改属性，本地看着变了，服务器不知道，下一次同步被覆盖，表现为“回档”",
+      "Actor 复制了但组件没开复制，位置同步、血条不动",
+      "客户端自己 Spawn 的 Actor 服务器不知道，其他玩家也看不到",
+      "Actor 销毁后继续发 RPC 不会留下任何日志，也不会访问到无效对象",
+      "单机能跑通就说明 Authority / Role / Owner 的分支都写对了"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "网络 bug 的共同特征是静默：不崩不报错，只是某个端上的世界不一样。客户端改属性会被下一次同步覆盖成“回档”，组件不复制则血条、冷却不动，客户端 Spawn 出来的是服务器不知道的影子 Actor。销毁后继续发 RPC 会在日志里刷“没有 channel”的警告，严重时访问无效对象；单机没有角色差异，联机才会暴露分支问题。",
+    "src": "深读.md#ue-unit-48"
+  },
+  {
+    "id": "ue7-016",
+    "cat": "ue7",
+    "unit": 48,
+    "unitTitle": "Q48 网络同步常见坑有哪些",
+    "type": "code",
+    "diff": 2,
+    "q": "补一行网络自检日志（复制状态、Authority、Role、Owner、连接），并修掉 Actor 销毁后定时器仍在跑的问题：\n\nvoid AMyActor::BeginPlay()\n{\n    Super::BeginPlay();\n    GetWorldTimerManager().SetTimer(TimerHandle, this, &AMyActor::Pulse, 0.2f, true);\n}\n\nvoid AMyActor::EndPlay(const EEndPlayReason::Type EndPlayReason)\n{\n    Super::EndPlay(EndPlayReason);\n}",
+    "ref": "自检日志用一行打出五个量：`UE_LOG(LogTemp, Log, TEXT(\"[Net] %s Authority=%d Role=%d Owner=%s Replicated=%d Conn=%s\"), *GetName(), HasAuthority() ? 1 : 0, static_cast<int32>(GetLocalRole()), *GetNameSafe(GetOwner()), GetIsReplicated() ? 1 : 0, *GetNameSafe(GetNetConnection()));`。清理：`EndPlay` 里先 `GetWorldTimerManager().ClearAllTimersForObject(this);`，同时清掉委托与挂起的 RPC，最后再 `Super::EndPlay(EndPlayReason);`。",
+    "explain": "排查的第一步不是读业务代码，而是确认这段逻辑跑在哪个端，所以自检日志要同时给出复制状态、Authority、Role、Owner 和连接。销毁路径不清理定时器和委托，销毁后还会继续发 RPC，日志里会刷“没有 channel”的警告，严重时访问无效对象。",
+    "src": "深读.md#ue-unit-48"
+  },
+  {
+    "id": "ue8-001",
+    "cat": "ue8",
+    "unit": 49,
+    "unitTitle": "Q49 Tick 开销怎么优化",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 Tick 的成本与优化顺序，下列哪些说法正确？（多选）",
+    "options": [
+      "`bCanEverTick = false` 才是把对象从调度里摘出去，在函数开头 `return` 仍要付注册与派发成本",
+      "设了 `TickInterval` 后传入的 `DeltaSeconds` 是累积的真实时长，不能假设它等于帧时间",
+      "`TickGroup` 只决定执行阶段与顺序，不减少工作量；前置依赖越多并行度越低",
+      "`bCanEverTick = false` 之后调 `SetActorTickEnabled(true)` 仍能把 Tick 打开",
+      "优化顺序应先抠单次执行成本，再考虑减少对象数量和降低频率"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "Tick 成本有两层：函数体和引擎注册、排序、派发到任务图的开销，后者只能靠减少对象与降低频率来省，所以顺序是数量 → 频率 → 单次成本。`TickInterval` 下 `DeltaSeconds` 变成累积时长，任何“每帧一次”的假设都会失真；`TickGroup` 只管阶段与顺序，依赖链还会把并行串行化。`bCanEverTick = false` 时 Tick 根本没注册，运行期再开也不会生效。",
+    "src": "深读.md#ue-unit-49"
+  },
+  {
+    "id": "ue8-002",
+    "cat": "ue8",
+    "unit": 49,
+    "unitTitle": "Q49 Tick 开销怎么优化",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这个 Actor 的 Tick 一次都没有执行。说明原因，并给出两种修正方向：\n\nAMyProjectile::AMyProjectile()\n{\n    PrimaryActorTick.bCanEverTick = false;\n    PrimaryActorTick.TickInterval = 0.033f;\n}\n\nvoid AMyProjectile::BeginPlay()\n{\n    Super::BeginPlay();\n    SetActorTickEnabled(true);\n}\n\nvoid AMyProjectile::Tick(float DeltaSeconds)\n{\n    Life -= DeltaSeconds;\n    if (Life <= 0.f) { Destroy(); }\n}",
+    "ref": "原因：`bCanEverTick = false` 时 Tick 函数根本没有注册进调度，运行期 `SetActorTickEnabled(true)` 会被引擎直接忽略。修正一：构造里 `PrimaryActorTick.bCanEverTick = true;` 配合 `bStartWithTickEnabled = false;`，在发射时再 `SetActorTickEnabled(true);`。修正二：干脆不逐 Actor Tick，改为由管理器用一个 Tick 驱动紧凑数组里的子弹数据。另外 `TickInterval = 0.033f` 时 `DeltaSeconds` 是累积时长，按“每帧一次”的阈值判断会失真。",
+    "explain": "“代码写了但没跑”就是 `bCanEverTick = false` 之后又调 `SetActorTickEnabled(true)` 的典型症状，因为 Tick 压根没注册。若确实需要更新，可以用 `bStartWithTickEnabled` 控制开关而不是关掉注册；对象成千上万时应抽成管理器，用一个 Tick 换掉上千次调度。",
+    "src": "深读.md#ue-unit-49"
+  },
+  {
+    "id": "ue8-003",
+    "cat": "ue8",
+    "unit": 50,
+    "unitTitle": "Q50 对象池怎么做",
+    "type": "single",
+    "diff": 2,
+    "q": "关于对象池的实现与代价，下列说法与原文一致的是？",
+    "options": [
+      "池内对象必须由 `UPROPERTY` 等强引用持有，否则下一轮 GC 会收走，`Acquire` 拿到的是失效对象",
+      "对象池就是在 `TArray` 里缓存一批 Actor，`Release` 时隐藏就够了",
+      "池化一定省性能，除了常驻内存上升之外没有其他代价",
+      "池应挂在会被 Destroy 的临时 Actor 上，跟着它一起销毁"
+    ],
+    "answer": [0],
+    "explain": "UE 没有开箱即用的通用对象池，池里的对象必须被强引用持有，否则没有引用边就会被 GC 收走。缓存只是第一步，真正的风险在 `Reset`：只隐藏不重置会留下上一发的伤害、命中和委托，出现“幽灵命中”；池化还带来常驻内存与状态维护成本，池本身应放在 `UWorldSubsystem` 或 GameInstance 这类与“这一局”对齐的宿主上。",
+    "src": "深读.md#ue-unit-50"
+  },
+  {
+    "id": "ue8-004",
+    "cat": "ue8",
+    "unit": 50,
+    "unitTitle": "Q50 对象池怎么做",
+    "type": "code",
+    "diff": 3,
+    "q": "下面这份池实现在连续取还 100 次后出现“幽灵命中”和野指针崩溃。指出至少三处问题并写出修正：\n\nAPooledBullet* UBulletPool::Acquire()\n{\n    if (FreeList.Num() > 0)\n    {\n        APooledBullet* Bullet = FreeList[0];\n        FreeList.RemoveAt(0);\n        return Bullet;\n    }\n    return nullptr;\n}\n\nvoid APooledBullet::Deactivate()\n{\n    SetActorHiddenInGame(true);\n}",
+    "ref": "① `Acquire` 取出前要 `IsValid(Bullet)` 校验（池对象可能被别的途径销毁），失效就继续找下一个；② 取出后要 `Bullet->Activate();`，负责显示、开 Tick、开碰撞；③ 池空时 `return Grow();`，有上限地扩容或降级成普通 Spawn，而不是返回空。④ `Deactivate` 只隐藏不等于失活，还要 `SetActorTickEnabled(false);`、`SetActorEnableCollision(false);`、`GetWorldTimerManager().ClearAllTimersForObject(this);` 并清掉外部绑的委托（如 `OnHit.Clear();`）。",
+    "explain": "还池等于彻底失活，隐藏只是外观；残留的计时器、委托和未复位的伤害值就是“幽灵命中”和双重结算的来源。取出时还必须校验有效性，因为池对象可能已被其他途径销毁，直接返回就是野指针。池的最小接口是 `Acquire`/`Release`/`Reset`/`Grow` 四个动作，只写前两个必然会漏清状态。",
+    "src": "深读.md#ue-unit-50"
+  },
+  {
+    "id": "ue8-005",
+    "cat": "ue8",
+    "unit": 51,
+    "unitTitle": "Q51 GC 卡顿怎么优化",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于 GC 卡顿的成因与手段，下列哪些说法正确？（多选）",
+    "options": [
+      "UObject 的存活由引用图可达性决定，`Destroy` 只把对象标记为待回收，内存要等下一轮 GC 才降",
+      "单次 GC 耗时更取决于 UObject 数量而非内存总量，几个大 UTexture 节点少，标记阶段并不痛",
+      "增量 GC 把一次收集拆到多帧：单帧尖峰变小，但总时长变长、内存峰值更高",
+      "把 `gc.TimeBetweenPurgingPendingKillObjects` 调大就能减少卡顿，因为单次收集会更短",
+      "把可能单独存活的资源都塞进同一个 GC 集群可以降低常驻内存"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "标记阶段沿引用图遍历，节点和边越多越贵，所以对象数量比总内存更影响耗时；几个大 UTexture 占内存但节点少。调大 GC 间隔会让两次收集之间的垃圾更多、单次标记清扫更久，长尾反而更明显；集群只减少遍历时的随机访问，把可单独存活的资源塞进一簇，一个引用就会拖住整簇，常驻内存反而上升。",
+    "src": "深读.md#ue-unit-51"
+  },
+  {
+    "id": "ue8-006",
+    "cat": "ue8",
+    "unit": 51,
+    "unitTitle": "Q51 GC 卡顿怎么优化",
+    "type": "code",
+    "diff": 2,
+    "q": "改写成不每帧制造垃圾的写法，并说明为什么这样能降低 GC 卡顿：\n\nvoid AMySpawner::Tick(float DeltaSeconds)\n{\n    UMyTempData* Data = NewObject<UMyTempData>(this);\n    Data->Compute();\n    // 结果用完即弃，两秒后业务上不再需要\n}",
+    "ref": "纯数据可以直接换成普通结构体或栈对象，不需要 UObject 就别造；确实需要 UObject 就作为成员只建一次并复用，例如 `CachedData->Compute();`（生命周期与本 Actor 一致），或从池里 `Pool->Acquire()`。原因：GC 单次耗时大致与 UObject 数量成正比，每帧 `NewObject` 等于给每一轮 GC 都加活，短命对象还要连带组件反注册与资源释放。",
+    "explain": "GC 是标记-清扫，每次收集都要沿引用图遍历全部对象，所以减少对象比调 GC 间隔更根本。改复用或结构体后 `obj list` 里该类计数应稳定不随运行时长增长，Insights 的 GC 轨道尖峰也应变矮；调大间隔只会让单次收集更久、长尾更明显。",
+    "src": "深读.md#ue-unit-51"
+  },
+  {
+    "id": "ue8-007",
+    "cat": "ue8",
+    "unit": 52,
+    "unitTitle": "Q52 内存分析有哪些手段",
+    "type": "single",
+    "diff": 2,
+    "q": "要回答“这个 UObject 还被谁引用着、为什么一直没释放”，最直接的工具是？",
+    "options": [
+      "`obj refs name=XXX`",
+      "`stat memory`",
+      "`memreport -full`",
+      "Unreal Insights 的内存轨道"
+    ],
+    "answer": [0],
+    "explain": "`obj list` / `obj refs` 给的是对象图，用来回答“有多少个”“谁引用着它”，读输出时先看直接引用者类型：`UPROPERTY` 容器、委托槽位还是根集，对应三种不同修法。`stat memory` 只有分类总量，`memreport` 是某一刻的明细快照，Insights 只有时间线，都回答不了引用链问题。",
+    "src": "深读.md#ue-unit-52"
+  },
+  {
+    "id": "ue8-008",
+    "cat": "ue8",
+    "unit": 52,
+    "unitTitle": "Q52 内存分析有哪些手段",
+    "type": "fill",
+    "diff": 1,
+    "q": "在控制台按 UObject 数量排序、查看类分布用命令 ____，而追查某个对象被谁引用用 `obj refs name=XXX`。",
+    "answer": ["obj list", "objlist", "obj list -countsort"],
+    "explain": "`obj list` 回答“有多少个、哪一类在涨”，配 `-countsort` 才能按数量排序看出增长项；只看总数会被临时对象干扰。`stat memory` 是分类总量、`memreport -full` 是明细快照、Insights 是时间线，三者都不能替代类级计数与引用链。",
+    "src": "深读.md#ue-unit-52"
+  },
+  {
+    "id": "ue8-009",
+    "cat": "ue8",
+    "unit": 53,
+    "unitTitle": "Q53 CPU 性能怎么定位",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于 CPU 性能定位，下列哪些说法正确？（多选）",
+    "options": [
+      "`stat unit` 的 Frame 大致由 Game / Draw / GPU 中最慢的一环决定，Frame 明显比三者都大说明有等待或同步",
+      "采样无侵入但看不到很短的小函数，精确结论要对可疑段落插桩之后才有",
+      "GC 的耗时算在 Game 线程，会直接拉高 Game 与 Frame",
+      "抓一次全量 trace 就能定位所有问题，抓得越久越全越准",
+      "在 PIE 里测出的绝对值可以直接当线上数据使用"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "定位顺序是先分层再切片：`stat unit` 的四个数先判断瓶颈线程，Frame 比三者都大说明有任务图等待、加载或 GPU 同步；确认在 Game 再用 `stat game` 与 trace 看系统与函数。采样看趋势、插桩看细节，两者要配合；trace 抓得越久开销越大，越可能抓到被观测行为改变后的世界，而 PIE 会掺入编辑器开销，结论必须在 Standalone 或打包版复现。",
+    "src": "深读.md#ue-unit-53"
+  },
+  {
+    "id": "ue8-010",
+    "cat": "ue8",
+    "unit": 53,
+    "unitTitle": "Q53 CPU 性能怎么定位",
+    "type": "code",
+    "diff": 2,
+    "q": "给下面这段逻辑同时挂上 stat 页面统计与 Insights 时间线标记，并说明两者分别进哪个工具：\n\nvoid UMySystem::Tick()\n{\n    for (AActor* A : CachedActors)\n    {\n        A->UpdateThing();\n    }\n}",
+    "ref": "文件级声明 `DECLARE_CYCLE_STAT(TEXT(\"MySystem Tick\"), STAT_MySystemTick, STATGROUP_Game);`，并 `#include \"ProfilingDebugging/CpuProfilerTrace.h\"`；函数首行 `SCOPE_CYCLE_COUNTER(STAT_MySystemTick);` 进 `stat game` 按组汇总，紧接 `TRACE_CPUPROFILER_EVENT_SCOPE(MySystem_Tick);` 进 Unreal Insights 时间线。验证时两边耗时应对得上，不吻合说明埋点没包住全部工作。",
+    "explain": "`SCOPE_CYCLE_COUNTER` 走的是 cycle stat 汇总，用于 `stat game` 这类页面；`TRACE_CPUPROFILER_EVENT_SCOPE` 生成 trace 事件，供 Insights 按名字过滤。埋点只包一层函数即可确认收益，铺得太密会因自身开销和缓存扰动让结果失真。",
+    "src": "深读.md#ue-unit-53"
+  },
+  {
+    "id": "ue8-011",
+    "cat": "ue8",
+    "unit": 54,
+    "unitTitle": "Q54 大资源怎么加载才不卡",
+    "type": "multi",
+    "diff": 2,
+    "q": "关于软引用与异步加载，下列哪些说法正确？（多选）",
+    "options": [
+      "`TSoftObjectPtr` / `TSoftClassPtr` 只存路径，不保证已加载，使用前必须显式请求加载",
+      "`RequestAsyncLoad` 返回的 handle 必须被持有，否则可能中途被取消、回调不来，或加载完就被卸载",
+      "纯软引用、又没有硬引用指向、也没被资产管理器收录的资产可能不进包，运行期加载会失败",
+      "异步加载完成的回调可能在工作线程执行，因此可以在回调里直接创建 UObject",
+      "把同步 `LoadObject` 放进 `Tick` 也没关系，只要资源不大"
+    ],
+    "answer": [0, 1, 2],
+    "explain": "软引用只存路径，把“何时加载”推迟到运行期，代价是使用方要自己处理还没加载、已被卸载、没打进包三种状态；handle 是这次加载的所有权凭证，不持有就可能中途被取消。异步完成回调发生在游戏线程，但对象可能已销毁，所以要弱绑定加校验；同步加载的 IO、反序列化、依赖解析全在调用线程上做，放在 Tick 里必然掉帧。",
+    "src": "深读.md#ue-unit-54"
+  },
+  {
+    "id": "ue8-012",
+    "cat": "ue8",
+    "unit": 54,
+    "unitTitle": "Q54 大资源怎么加载才不卡",
+    "type": "code",
+    "diff": 3,
+    "q": "下面的异步加载偶尔“回调不来”，偶尔在回调里崩溃。指出两处问题并改正：\n\nvoid UMyLoader::LoadWeaponAsync(TSoftClassPtr<AActor> SoftClass)\n{\n    TSharedPtr<FStreamableHandle> Handle =\n        UAssetManager::GetStreamableManager().RequestAsyncLoad(\n            SoftClass.ToSoftObjectPath(),\n            FStreamableDelegate::CreateLambda([this, SoftClass]()\n            {\n                GetWorld()->SpawnActor(SoftClass.Get());\n            }));\n}",
+    "ref": "① handle 是局部变量，函数返回即释放，加载可能被取消、回调永远不来，或资源刚加载完就被卸掉；应存成成员 `TSharedPtr<FStreamableHandle> LoadHandle;`，并在回调末尾 `LoadHandle.Reset();` 主动释放。② 回调里直接解引用 `this`、`GetWorld()` 和 `SoftClass.Get()`，对象或 World 可能已销毁；改用 `FStreamableDelegate::CreateWeakLambda(this, ...)` 或在回调入口用弱指针/`IsValid` 校验，`Get()` 结果也要判空再 Spawn。",
+    "explain": "handle 是所有权凭证，不持有它就无法保证请求继续存在，表现为“偶尔加载失败”。异步回调确实回到游戏线程，但期间对象与 World 都可能被销毁，`CreateWeakLambda` 只保证回调安全，不能代替 handle 的持有，两者要一起用。",
+    "src": "深读.md#ue-unit-54"
+  },
+  {
+    "id": "ue8-013",
+    "cat": "ue8",
+    "unit": 55,
+    "unitTitle": "Q55 内存泄漏怎么排查",
+    "type": "multi",
+    "diff": 3,
+    "q": "关于内存泄漏的成因与排查，下列哪些说法正确？（多选）",
+    "options": [
+      "`AddUObject` 是弱绑定，对象销毁后委托自动失效；真正延长生命周期的是 `AddSP`、捕获共享指针的 Lambda 与手工原生绑定",
+      "根集里的对象也会被 GC 正常回收，所以 `AddToRoot` 之后不需要 `RemoveFromRoot`",
+      "非 UObject 持有 UObject 却不实现 `FGCObject::AddReferencedObjects`，GC 看不见这条引用，可能悬垂或被提前回收",
+      "`TSharedPtr` 双向持有会形成环，环内对象都不会释放，需要一端改成 `TWeakPtr`",
+      "UObject 泄漏就是忘了 `delete`，查一遍析构函数即可"
+    ],
+    "answer": [0, 2, 3],
+    "explain": "UObject 不由你 delete，所谓泄漏几乎都是还有一条没注意的强引用链，排查靠 `obj refs` 追引用者而不是看析构函数。根集里的对象永远存活，`AddToRoot` 必须配对 `RemoveFromRoot`，否则永久驻留。委托本身不是天然泄漏源，`AddUObject` 是弱绑定，真正吊住对象的是 `AddSP`、捕获共享指针的 Lambda 与未清理的 Timer。",
+    "src": "深读.md#ue-unit-55"
+  },
+  {
+    "id": "ue8-014",
+    "cat": "ue8",
+    "unit": 55,
+    "unitTitle": "Q55 内存泄漏怎么排查",
+    "type": "code",
+    "diff": 2,
+    "q": "下面的非 UObject 缓存持有 UObject，但出现“对象被回收后仍在使用”的悬垂问题。改造它，让 GC 看见这条引用并能在引用链里报出所有者名称：\n\nclass FMyTextureCache\n{\npublic:\n    UTexture2D* CachedTexture = nullptr;\n};",
+    "ref": "让它继承 `FGCObject`，实现 `virtual void AddReferencedObjects(FReferenceCollector& Collector) override { Collector.AddReferencedObject(CachedTexture); }`，并实现 `virtual FString GetReferencerName() const override { return TEXT(\"FMyTextureCache\"); }`。这样这条引用进入反射引用图，GC 既不会提前回收它，`obj refs` 里也能看到持有者名称。",
+    "explain": "GC 只认反射引用图，既不知道原生容器里塞了什么，也不知道 Lambda 捕获了谁；不实现 `FGCObject` 时轻则对象被回收后仍在使用（悬垂），重则表现为“东西莫名没了”。反过来，忘记注销声明则会让对象永不回收，所以泄漏排查的本质是找那条没被声明或被遗忘的边。",
+    "src": "深读.md#ue-unit-55"
+  }
+]

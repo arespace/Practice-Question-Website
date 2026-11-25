@@ -1,0 +1,145 @@
+[
+  {
+    "id": "d1-x01",
+    "cat": "d1",
+    "unit": 1,
+    "unitTitle": "值传递与引用传递",
+    "type": "code",
+    "diff": 2,
+    "q": "下面代码的两次输出分别是什么？`print` 按值接收 `Base`，而 `main` 里还通过引用调用了一次虚函数。请说明两次调用的区别，以及为什么按值传多态对象会丢失动态类型。\n```cpp\n#include <cstdio>\n\nstruct Base {\n    virtual const char* name() const { return \"Base\"; }\n    virtual ~Base() = default;\n};\n\nstruct Derived : Base {\n    const char* name() const override { return \"Derived\"; }\n};\n\nvoid print(Base b) { std::puts(b.name()); }\n\nint main() {\n    Derived d;\n    print(d);\n    Base& r = d;\n    std::puts(r.name());\n}\n```",
+    "ref": "输出 `Base` 然后 `Derived`。`print(d)` 按值传参，形参 `b` 由 `d` 的 `Base` 子对象拷贝构造而来，`Derived` 多出来的部分被切掉（对象切片），`b` 的静态类型和动态类型都是 `Base`，虚调用只能进 `Base::name()`。第二次 `Base& r = d` 只是别名、不构造新对象，`r` 的动态类型仍是 `Derived`，虚调用进入 `Derived::name()`。要保留多态应改成 `void print(const Base& b)` 或 `const Base*`；若确实必须按值传递，说明本来就不需要多态，切片也就不是 bug 而是设计选择。另外基类析构函数必须是虚的，否则通过基类指针删除派生对象同样是 UB。",
+    "explain": "考的是“值传递 + 虚函数”的组合：值传递执行拷贝初始化，形参类型决定拷贝哪一部分，`Base` 的拷贝构造只复制基类子对象，派生部分被丢弃，动态类型被“压平”成 `Base`。判分要点：① 两次输出顺序与内容为 `Base`、`Derived`；② 指出切片发生在按值传参那一刻；③ 给出引用或指针的改法。易错点是以为“对象里还有虚表指针，所以还能多态”——虚表指针跟着被拷贝的基类子对象走，指向的是 `Base` 的虚表。"
+  },
+  {
+    "id": "d1-x02",
+    "cat": "d1",
+    "unit": 2,
+    "unitTitle": "C 和 C++ 的区别",
+    "type": "code",
+    "diff": 2,
+    "q": "下面这段从 C 迁过来的代码用 C++ 编译器编译会失败。请指出报错原因，并给出至少两种让它在 C++17 下合法且不泄漏内存的改法。\n```cpp\n#include <cstdlib>\n#include <cstdio>\n\nint main() {\n    const int n = 4;\n    int* p = std::malloc(n * sizeof(int));\n\n    for (int i = 0; i < n; ++i)\n        p[i] = i * i;\n\n    std::printf(\"%d\\n\", p[3]);\n    std::free(p);\n}\n```",
+    "ref": "报错是 `invalid conversion from 'void*' to 'int*'`：C 允许 `void*` 隐式转成任意对象指针，C++ 取消了这条隐式转换，而 `std::malloc` 返回 `void*`，必须显式转换。改法一：`int* p = static_cast<int*>(std::malloc(n * sizeof(int)));`，其余不变，仍用 `std::free` 释放。改法二：改用 `std::vector<int> p(n);`，生命周期自动管理，连 `free` 都不用写。注意 `malloc` 必须配 `free`，若改用 `new[]` 则必须配 `delete[]`，交叉使用是 UB；C++ 里优先选 `std::vector`。",
+    "explain": "考点是 C/C++ 类型安全差异：`void*` 在 C 里是通用指针，可以隐式转回具体类型；C++ 要求显式转换，所以同一行代码换成 `g++` 就报错。判分要点：① 报错文本指向 `void*` 到 `int*` 的隐式转换；② 改法必须保持内存释放正确（`static_cast` 配 `free`，或 `vector`/`unique_ptr`）；③ 不能只写 `(int*)malloc` 就说“修好了”而不提释放。易错点是顺手把 `free` 换成 `delete`——`malloc` 分配的内存必须用 `free` 释放。"
+  },
+  {
+    "id": "d1-x03",
+    "cat": "d1",
+    "unit": 3,
+    "unitTitle": "左值、右值与 std::move",
+    "type": "code",
+    "diff": 3,
+    "q": "下面代码中 `sink(r)` 一行无法编译，而 `sink(std::move(r))` 可以。请解释原因，并说明这里的 `r` 到底是什么值类别。\n```cpp\n#include <string>\n#include <utility>\n\nvoid sink(std::string&& s) { (void)s; }\n\nint main() {\n    std::string a = \"hello\";\n    std::string&& r = std::move(a);\n\n    // sink(a);             // ①\n    // sink(r);             // ②\n    sink(std::move(r));     // ③\n}\n```",
+    "ref": "`sink(r)` 报 `cannot bind rvalue reference of type 'std::string&&' to an lvalue of type 'std::string'`。原因是 `r` 的声明类型虽然是右值引用，但“具名变量”的表达式永远是左值，所以 `r` 无法绑定到 `std::string&&` 形参；同理 ① 里的 `a` 也是左值，同样编译失败。③ 先用 `std::move(r)` 把表达式转成将亡值（xvalue），类型为 `std::string&&`，才能绑定。判断口诀：类型看声明，值类别看表达式——具名右值引用是左值，`std::move` 只是把表达式重新标记成右值，不搬任何资源。若要在函数模板里同时接左右值，用转发引用 `template<class T> void f(T&&)` 配 `std::forward<T>`。",
+    "explain": "本题考“声明类型”与“值类别”是两件独立的事。`std::string&& r` 的声明类型是右值引用，但表达式 `r` 有名字、可取地址，因此是左值，绑定不到 `T&&` 形参；`std::move(r)` 只做 `static_cast<std::string&&>(r)`，改变的是表达式的值类别。判分要点：① 指出 ② 失败、③ 通过；② 用“具名即左值”解释；③ 给出 `std::move(r)` 或 `std::forward` 的修法。易错点是把 `T&&` 类型等同于右值，从而认为 `sink(r)` 应该合法。"
+  },
+  {
+    "id": "d1-x04",
+    "cat": "d1",
+    "unit": 4,
+    "unitTitle": "列表初始化",
+    "type": "code",
+    "diff": 2,
+    "q": "下面程序在 C++17 下输出什么？请分别说明 `a` 与 `b` 的每个成员是怎么初始化的。结构体带了默认成员初始化器，注意它与花括号初始化的交互规则。\n```cpp\n#include <cstdio>\n\nstruct Config {\n    int retries = 3;\n    int timeout;\n};\n\nint main() {\n    Config a{1};\n    Config b{};\n\n    std::printf(\"%d %d %d %d\\n\",\n                a.retries, a.timeout,\n                b.retries, b.timeout);\n}\n```",
+    "ref": "输出 `1 0 3 0`。`Config` 没有用户提供的构造函数，带默认成员初始化器（NSDMI）在 C++14 起仍算聚合体，所以 `{}` 走聚合初始化。`a{1}` 只给第一个成员 `retries` 初值 1，剩下的 `timeout` 没有对应初值，按“从空列表初始化”处理，即值初始化为 0。`b{}` 是空列表，两个成员各自按默认成员初始化器或值初始化处理：`retries` 取 NSDMI 的 3，`timeout` 值初始化为 0。若给 `Config` 加一个用户提供的构造函数，它就不再是聚合体，`Config a{1}` 改为调用该构造函数，语义随之改变。",
+    "explain": "考点是列表初始化在聚合体上的“省略成员”规则：有 NSDMI 的成员在空列表时用 NSDMI，无 NSDMI 的成员值初始化为 0；显式给出的初值只覆盖对应位置。判分要点：① 四个数字顺序为 `1 0 3 0`；② 说明 C++14 起 NSDMI 不破坏聚合性；③ 说明被省略的成员是值初始化而非未初始化。易错点是把 `a{1}` 的 `timeout` 当成“保留 NSDMI 或未定义”，或以为 `b{}` 全是 0 而忽略 `retries` 的 3。"
+  },
+  {
+    "id": "d1-x05",
+    "cat": "d1",
+    "unit": 5,
+    "unitTitle": "数组与指针",
+    "type": "code",
+    "diff": 3,
+    "q": "64 位平台上，下面程序的输出是什么？请说明 `p` 与 `q` 的类型差异，以及最后一个差值是怎么算出来的（注意数组指针的步长）。\n```cpp\n#include <cstdio>\n\nint main() {\n    int a[4] = {10, 20, 30, 40};\n    int* p = a + 1;\n    int (*q)[4] = &a;\n\n    std::printf(\"%d %d %td\\n\",\n                *(p + 1),\n                *(*(q + 1) - 1),\n                (char*)(q + 1) - (char*)q);\n}\n```",
+    "ref": "输出 `30 40 16`。`p` 是 `int*`，`p = a + 1` 指向 `a[1]`，`*(p + 1)` 即 `a[2]`，值为 30。`q` 是 `int (*)[4]`，指向整个数组，`q + 1` 是数组尾后位置；`*(q + 1)` 得到数组左值并退化成 `int*`，再 `- 1` 回退一个元素，指向 `a[3]`，所以是 40。`(char*)(q + 1) - (char*)q` 按字节计算，正好跨过整个数组 4 * sizeof(int) = 16 字节，结果是 16（用 `%td` 打印 `ptrdiff_t`）。要点：`a + 1` 的步长是一个 `int`，`q + 1` 的步长是一个 `int[4]`；两者数值地址可能相同，但类型和步长不同。",
+    "explain": "本题把“数组退化为元素指针”和“取数组地址得到数组指针”放在一起对照：`&a` 的类型是 `int(*)[4]`，做算术时以整个数组为步长，所以 `q + 1` 越过 16 字节；`a + 1` 只越过 4 字节。判分要点：① 三个输出 30、40、16；② 说明 `*(q + 1)` 先退化成 `int*` 再减一；③ 指出 `(char*)` 差值按字节计。易错点是把 `q + 1` 当成“下一个 int”、把 `*(q+1)-1` 写成越界解引用，以及对指针相减行使用 `%d` 而非 `%td`。"
+  },
+  {
+    "id": "d1-x06",
+    "cat": "d1",
+    "unit": 6,
+    "unitTitle": "sizeof 与 strlen",
+    "type": "code",
+    "diff": 2,
+    "q": "64 位平台上，下面程序输出什么？请说明每个数字的含义，并解释为什么不能对 `new[]` 返回的指针用 `sizeof` 求元素个数。\n```cpp\n#include <cstdio>\n#include <cstring>\n\nint main() {\n    char s[] = \"hello\";\n    int* p = new int[10]{};\n\n    std::printf(\"%zu %zu %zu\\n\",\n                sizeof(s),\n                std::strlen(s),\n                sizeof(p) / sizeof(p[0]));\n\n    delete[] p;\n}\n```",
+    "ref": "输出 `6 5 2`。`sizeof(s)` 是数组对象占的字节数，`\"hello\"` 字面量带结尾 `'\\0'`，共 6 字节；`std::strlen(s)` 在运行期数到第一个 `'\\0'` 之前，结果是 5。`p` 的类型是 `int*`，`sizeof(p)` 在 64 位下是 8，`sizeof(p[0])` 是 4，相除得 2——这个 2 不是元素个数，只是指针大小除以元素大小。`new int[10]` 只返回首元素地址，元素个数由分配器自己记录，类型系统里没有这个信息，所以必须自己记住 10，或改用 `std::vector<int>` / `std::array`。另外 `sizeof` 是运算符、操作数不求值，`strlen` 是运行期扫描函数，两者口径不同。",
+    "explain": "考点是“类型大小”与“运行期数据长度”两套口径：`sizeof` 编译期给出数组/指针/字符类型的字节数且包含 `'\\0'`，`strlen` 运行期扫到 `'\\0'` 为止且不包含它。判分要点：① 三个数 6、5、2；② 指出 `sizeof(p)` 只是指针大小（8），所以商为 2 而非 10；③ 说明 `new[]` 后长度信息丢失。易错点是看到 `sizeof(p) / sizeof(p[0])` 就以为能算元素个数，或把 `strlen` 结果算成 6。"
+  },
+  {
+    "id": "d1-x07",
+    "cat": "d1",
+    "unit": 7,
+    "unitTitle": "nullptr 与 NULL",
+    "type": "code",
+    "diff": 2,
+    "q": "`nullptr` 与 `NULL` 在类型上的差异会直接体现在这几行里。请指出哪一行无法编译、为什么，并给出两种改法。\n```cpp\n#include <cstddef>\n#include <cstdio>\n\nvoid configure(int mode) { std::printf(\"int %d\\n\", mode); }\nvoid configure(void* ctx) { std::printf(\"ptr %p\\n\", ctx); }\n\nint main() {\n    configure(nullptr);   // 1\n    int legacy = NULL;    // 2\n    int bad = nullptr;    // 3\n\n    (void)legacy;\n    (void)bad;\n}\n```",
+    "ref": "第 3 行无法编译：`cannot convert 'std::nullptr_t' to 'int'`。`nullptr` 的类型是 `std::nullptr_t`，标准只允许它隐式转换到任意对象指针、成员指针和 `bool`，不包括整数，这正是它比 `NULL` 安全的地方。第 1 行合法且必然选中 `configure(void*)`：`nullptr` 只能转成指针，不会像 `NULL` 那样在 `f(int)` 与 `f(void*)` 之间产生歧义。第 2 行也合法，`NULL` 在这些实现里是整数常量 0（`__null`），可以初始化 `int`，但把空指针语义降级成整数本身就是要修掉的旧写法。改法：第 3 行写成 `int bad = 0;`，或改成 `void* bad = nullptr;`（必要时 `std::nullptr_t`）。",
+    "explain": "考的是 `std::nullptr_t` 的转换集合：它能转任意指针和 `bool`，唯独不能转整数；而 `NULL` 本质是整数常量，所以既能给 `int` 初始化，也会在重载里与 `int` 版本竞争。判分要点：① 指出第 3 行报错并给出报错含义；② 说明第 1 行确定选 `void*` 版本；③ 给出把整数改成 0 或改用指针的修法。易错点是以为 `nullptr` 就是“值为 0 的整数”、或以为三行都能通过。"
+  },
+  {
+    "id": "d1-x08",
+    "cat": "d1",
+    "unit": 8,
+    "unitTitle": "指针与引用",
+    "type": "code",
+    "diff": 2,
+    "q": "下面 `makeGreeting` 返回了一个引用，`main` 打印它。请指出问题所在、运行时会发生什么，并给出两种正确的改法。\n```cpp\n#include <string>\n#include <cstdio>\n\nconst std::string& makeGreeting() {\n    std::string s = \"hello\";\n    return s;\n}\n\nint main() {\n    const std::string& g = makeGreeting();\n    std::printf(\"%s\\n\", g.c_str());\n}\n```",
+    "ref": "问题：`s` 是函数内的局部对象，函数返回时已经析构，`makeGreeting` 返回的是悬垂引用，`main` 里再读 `g` 属于未定义行为——可能打印乱码、可能崩溃，也可能“看起来正常”。改法一：按值返回 `std::string makeGreeting()`，由调用方持有对象，NRVO 会避免多余拷贝。改法二：让被引用对象活得足够久，例如 `static const std::string s = \"hello\";`，或返回成员/调用方传入对象的引用；若坚持返回引用，生命周期必须由调用方保证。注意编译器通常只给 `-Wreturn-local-addr` 警告而不是错误，这类 bug 很容易漏过。",
+    "explain": "考点是引用的生命周期契约：引用本身不延长局部对象寿命，函数返回即销毁栈帧，引用立刻悬垂；读取悬垂引用是 UB，不能靠“跑起来没崩”判断正确。判分要点：① 明确指出悬垂/UB 而非“拷贝性能问题”；② 给出按值返回或延长对象寿命的改法之一以上；③ 提到警告而非编译错误。易错点是认为 `const&` 绑定返回值能延长临时量寿命——延长规则只对临时量有效，对局部变量返回的引用无效。"
+  },
+  {
+    "id": "d1-x09",
+    "cat": "d1",
+    "unit": 9,
+    "unitTitle": "整型宽度：short、int、long、long long",
+    "type": "code",
+    "diff": 2,
+    "q": "下面程序输出什么？请解释 `i < u` 为什么是这个结果，并说明 `-Wsign-compare` 为什么会在这段代码上发出警告。\n```cpp\n#include <cstdio>\n#include <vector>\n\nint main() {\n    std::vector<int> v{1, 2, 3};\n    int count = 0;\n    for (int i = 0; i < v.size(); ++i)\n        ++count;\n\n    int i = -1;\n    unsigned u = 1;\n    std::printf(\"%d %d\\n\", count, i < u);\n}\n```",
+    "ref": "输出 `3 0`。`i < u` 中 `int` 与 `unsigned int` 混合运算，按寻常算术转换先把 `i` 转成 `unsigned int`，`-1` 变成 `4294967295`，于是比较结果为假，打印 0。循环里 `i < v.size()` 同理：`size()` 返回 `size_t`（64 位无符号），`int` 会被转成无符号再比较，`-Wsign-compare` 报的就是这个隐式转换。当容器长度超过 `INT_MAX` 时，`int` 下标还会被截断，逻辑直接出错。正确写法是用 `std::size_t i = 0;` 或范围 `for (int x : v)`，需要差值时再显式转换。",
+    "explain": "考点是有符号/无符号混合比较的转换规则：同秩情况下有符号操作数被转成无符号，负数因此变成一个极大的正数，比较语义被反转。判分要点：① 输出 `3 0`（`count` 仍为 3）；② 说明 `-1` 被转成 `4294967295`；③ 指出 `int` 下标与 `size_t` 比较的隐患。易错点是以为 `i < u` 会按数学值比较得到 1，或以为编译器警告只是风格问题。注意无符号回绕本身有定义，真正的问题是类型转换改变了比较结果。"
+  },
+  {
+    "id": "d1-x10",
+    "cat": "d1",
+    "unit": 10,
+    "unitTitle": "常量指针与指针常量",
+    "type": "code",
+    "diff": 2,
+    "q": "下面代码的 `const P p` 锁住的是数据还是指针？程序输出什么？把注释掉的 `p = &y;` 打开会怎样？从 type traits 的断言也能看出结论。\n```cpp\n#include <cstdio>\n#include <type_traits>\n\nusing P = int*;\n\nint main() {\n    int x = 1, y = 2;\n    const P p = &x;\n\n    *p = 5;\n    // p = &y;\n\n    static_assert(std::is_same_v<decltype(p), int* const>);\n    std::printf(\"%d\\n\", x);\n}\n```",
+    "ref": "`const P` 是 `int* const`，锁的是指针本身（顶层 const），不是指针指向的数据。`*p = 5;` 合法，把 `x` 改成 5，所以输出 `5`。取消 `p = &y;` 的注释会报错：`p` 是只读变量，不能改指向，报 `assignment of read-only variable`。`static_assert` 能通过，说明用 `using`（或 `typedef`）出来的指针别名再加 `const`，得到的是 `int* const`，而不是 `const int*`。若想表达“指向常量的指针”，必须写 `const int* p`，或定义 `using CP = const int*; const CP p = &x;`；两端都锁则写 `const int* const`。区别就在于 `const` 修饰的是别名整体还是它指向的类型。",
+    "explain": "考点是 `const` 与 typedef/using 别名的结合规则：限定符作用于别名所代表的整个类型，`P` 是 `int*`，所以 `const P` 是常量指针，等价于 `int* const`；这与直接写 `const int*` 完全不同。判分要点：① 明确指出锁的是指针；② 输出 5；③ 打开注释后报只读变量错误并解释 `decltype` 带顶层 const。易错点是把 `const P` 当成 `const int*`，或以为 `static_assert` 里写的类型只是风格声明。"
+  },
+  {
+    "id": "d1-x11",
+    "cat": "d1",
+    "unit": 11,
+    "unitTitle": "函数指针",
+    "type": "code",
+    "diff": 2,
+    "q": "下面程序输出什么？请说明 `table[op]` 的类型，为什么 `(*table[2])` 与 `table[2]` 调用等价，以及访问 `table[3]` 会有什么后果。\n```cpp\n#include <cstdio>\n\nusing BinOp = int (*)(int, int);\n\nint add(int a, int b) { return a + b; }\nint sub(int a, int b) { return a - b; }\nint mul(int a, int b) { return a * b; }\n\nint main() {\n    BinOp table[3] = {add, sub, mul};\n    int op = 1;\n\n    std::printf(\"%d %d\\n\",\n                table[op](7, 3),\n                (*table[2])(7, 3));\n}\n```",
+    "ref": "输出 `4 21`。`table` 是“元素为函数指针”的数组，`table[op]` 的类型是 `int (*)(int, int)`；`table[1]` 指向 `sub`，`sub(7, 3) = 4`；`table[2]` 指向 `mul`，`mul(7, 3) = 21`。函数指针调用时 `(*fp)(args)` 与 `fp(args)` 完全等价，因为 `*` 作用在函数指针上得到函数左值，随后又会退化成同一个指针，标准明确规定两者等价。`op = 3` 是数组越界，读到的不是函数指针而是数组后面的内存，再调用就是 UB，通常直接崩溃；下标必须自己校验。另外初始化列表里直接写 `add`、`sub`、`mul` 就已经退化成函数指针，不需要写 `&`。",
+    "explain": "考点有两层：一是函数指针数组把“调用哪一个函数”变成运行期数据，元素签名必须完全一致；二是函数指针的解引用是可选写法，`*fp` 与 `fp` 在调用语境下等价。判分要点：① 输出 4 和 21；② 正确说出 `table[op]` 的类型；③ 指出越界调用是 UB。易错点是把 `table[2]` 的 `*` 当成“必须写两遍”的语法怪癖、或以为数组越界只会读到垃圾值而不会崩溃，也容易把 `mul(7,3)` 算成 10。"
+  },
+  {
+    "id": "d1-x12",
+    "cat": "d1",
+    "unit": 12,
+    "unitTitle": "函数指针与指针函数",
+    "type": "code",
+    "diff": 3,
+    "q": "下面 `choose` 是函数指针还是指针函数？它的返回类型与 `&choose` 的类型分别是什么？程序输出什么？请按右左法则把声明读一遍。\n```cpp\n#include <cstdio>\n\nint add(int a, int b) { return a + b; }\nint sub(int a, int b) { return a - b; }\n\nint (*choose(bool useAdd))(int, int) {\n    return useAdd ? add : sub;\n}\n\nint main() {\n    std::printf(\"%d %d\\n\",\n                choose(true)(7, 3),\n                choose(false)(7, 3));\n}\n```",
+    "ref": "`choose` 是一个函数，不是函数指针变量；它返回 `int (*)(int, int)`，即“返回函数指针的函数”。按右左法则读：`choose` 先与 `(` 结合，说明是函数，返回类型是 `int (*)(int, int)`，括号里那层 `(*...)(int,int)` 才是函数指针。`decltype(&choose)` 是 `int (*(*)(bool))(int, int)`，指向“接收 `bool`、返回函数指针”的函数。输出 `10 4`：`choose(true)` 返回 `add`，`add(7, 3) = 10`；`choose(false)` 返回 `sub`，`sub(7, 3) = 4`。工程上更推荐写 `using BinOp = int (*)(int, int); BinOp choose(bool);` 来避免括号层数写错。",
+    "explain": "考点是把“函数指针”和“指针函数”拆开看：`int (*choose(bool))(int,int)` 中外层是函数声明，返回类型才是函数指针，与 `int (*pick)(int,int)`（变量）差一层括号。判分要点：① 判断 `choose` 是函数、返回函数指针；② 准确写出返回类型 `int (*)(int,int)`；③ 输出 10 与 4，并说明 `choose(true)(7,3)` 是连续两次调用。易错点是把 `choose` 说成函数指针变量，或把 `&choose` 的类型少写一层括号，也容易误以为返回类型是 `int`。"
+  },
+  {
+    "id": "d1-x13",
+    "cat": "d1",
+    "unit": 13,
+    "unitTitle": "静态局部变量、全局变量、局部变量",
+    "type": "code",
+    "diff": 2,
+    "q": "下面程序的两次输出分别是什么？请说明 `bump` 里的 `counter` 与全局 `counter` 的关系，以及 `static int counter` 的生命周期与初始化时机。\n```cpp\n#include <cstdio>\n\nint counter = 100;\n\nint bump() {\n    static int counter = 0;\n    return ++counter;\n}\n\nint main() {\n    bump();\n    bump();\n    std::printf(\"%d %d\\n\", bump(), counter);\n}\n```",
+    "ref": "输出 `3 100`。`bump` 内的 `static int counter` 与全局 `counter` 是两个互不相干的对象：前者是块作用域、静态存储期，名字在函数内遮蔽全局；后者是文件作用域、静态存储期、外部链接。`static` 局部变量在第一次执行到声明时初始化一次（这里初始化为 0），之后跨调用保持值，所以三次 `bump()` 依次返回 1、2、3，最后一次打印 3；全局 `counter` 从头到尾没被修改，仍是 100。C++11 起这次首次初始化是线程安全的（magic statics），但后续 `++counter` 仍是普通读改写，多线程同时调用 `bump()` 需要加锁或改成 `std::atomic<int>`，否则是数据竞争。",
+    "explain": "考点是把变量按存储期、链接、作用域三个维度拆开：函数内 `static` 改变的是存储期和作用域无关的寿命，作用域仍是函数块；全局变量是静态存储期、外部链接；同名时块作用域胜出。判分要点：① 输出 `3 100`；② 说明两个 `counter` 是不同对象、局部遮蔽全局；③ 说明 static 局部只初始化一次、析构在程序退出时。易错点是把两个 `counter` 混成一个（算出 103 之类），或以为 `static` 局部每次调用都会重新初始化为 0。"
+  }
+]

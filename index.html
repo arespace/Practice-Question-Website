@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:," />
+<title>C++ / UEC++ 面试刷题台</title>
+<meta name="description" content="C++ 与 Unreal Engine C++ 面试刷题：口述稿、关键词锚点、追问与深挖。" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body data-page="cards">
+<div class="bg-grid" aria-hidden="true"></div>
+
+<header class="app-header">
+  <button class="icon-btn menu-btn" id="menuBtn" aria-label="打开题目列表">☰</button>
+  <a class="brand" href="index.html" title="C++ / UEC++ 刷题台">
+    <div class="brand-mark">C<span>++</span></div>
+    <div class="brand-text">
+      <h1 id="brandTitle">C++ / UEC++ 刷题台</h1>
+      <p id="brandSub">67 张 C++ 卡 · 68 张 UE 卡 · 口述稿 + 锚点 + 追问</p>
+    </div>
+  </a>
+  <nav class="page-switch">
+    <a class="active" href="index.html">速背卡</a>
+    <a href="deep.html">深读</a>
+    <a href="quiz.html">检测题</a>
+  </nav>
+  <div class="header-stats">
+    <div id="dirSwitch"></div>
+    <div class="hstat"><b id="statMastered">0</b><span>已掌握</span></div>
+    <div class="hstat warn"><b id="statDue">0</b><span>待复习</span></div>
+    <div class="hstat"><b id="statToday">0</b><span>今日</span></div>
+    <button class="icon-btn" id="themeBtn" aria-label="切换主题" title="切换明暗主题">◐</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="rail-head">
+      <div>
+        <p class="rail-eyebrow">速背卡</p>
+        <h2 class="rail-title">题库与筛选</h2>
+      </div>
+      <button class="icon-btn close-btn" id="closeBtn" aria-label="关闭">×</button>
+    </div>
+
+    <div class="sidebar-head">
+      <input id="searchInput" class="search" type="search" placeholder="搜索题目 / 关键词…" autocomplete="off" />
+    </div>
+
+    <nav class="bank-tabs" id="bankTabs"></nav>
+
+    <div class="rail-block">
+      <div class="rail-label">练习状态</div>
+      <div class="filter-row" id="statusFilter">
+        <button class="chip active" data-status="all">全部</button>
+        <button class="chip" data-status="todo">未练</button>
+        <button class="chip" data-status="review">待复习</button>
+        <button class="chip" data-status="mastered">已掌握</button>
+        <button class="chip" data-status="fav">收藏</button>
+      </div>
+    </div>
+
+    <div class="progress-block">
+      <div class="progress-head">
+        <span>总进度</span>
+        <span id="progressText">0 / 0</span>
+      </div>
+      <div class="bar"><i id="progressBar"></i></div>
+      <div class="legend">
+        <span><i class="dot ok"></i>掌握 <b id="legendOk">0</b></span>
+        <span><i class="dot mid"></i>模糊 <b id="legendMid">0</b></span>
+        <span><i class="dot no"></i>不会 <b id="legendNo">0</b></span>
+      </div>
+    </div>
+
+    <div class="daily-block">
+      <div class="progress-head">
+        <span>今日目标</span>
+        <span id="cardDailyText">0 / 20</span>
+      </div>
+      <div class="bar"><i id="cardDailyBar"></i></div>
+      <div class="legend">
+        <span>连续打卡 <b id="cardStreak">0</b> 天</span>
+        <span>今日完成 <b id="cardToday">0</b></span>
+      </div>
+    </div>
+
+    <div class="rail-block" style="flex:1; min-height:0;">
+      <div class="rail-label">答题卡</div>
+      <div class="group-list" id="groupList"></div>
+    </div>
+
+    <div class="sidebar-foot">
+      <button class="ghost-btn" id="resetBtn">重置全部进度</button>
+    </div>
+  </aside>
+
+  <div class="scrim" id="scrim"></div>
+
+  <main class="stage">
+    <div class="focus-strip" id="focusStrip" hidden>
+      <span id="focusText"></span>
+      <button class="ghost-btn small" id="focusClear">清除定位</button>
+    </div>
+
+    <div class="stage-bar">
+      <div class="mode-switch" id="modeSwitch">
+        <button class="mode active" data-mode="order">顺序</button>
+        <button class="mode" data-mode="random">随机</button>
+        <button class="mode" data-mode="review">待复习</button>
+      </div>
+      <div class="deck-info">
+        <span id="deckPos">0 / 0</span>
+        <button class="ghost-btn small" id="shuffleBtn">重新洗牌</button>
+      </div>
+    </div>
+
+    <div class="due-strip" id="cardDueStrip">
+      <span class="due-ico">◷</span>
+      <span id="cardDueText">今天没有到期的卡片</span>
+      <button class="primary-btn small" id="cardDueBtn" hidden>开始复习</button>
+    </div>
+
+    <article class="card" id="card" aria-live="polite">
+      <div class="card-meta">
+        <span class="badge" id="badgeBank">C++</span>
+        <span class="badge ghost" id="badgeGroup">基础语义</span>
+        <span class="badge ghost" id="badgeNo">#01</span>
+        <span class="badge req" id="badgeReq">必背</span>
+        <button class="star" id="starBtn" title="收藏 (F)">☆</button>
+      </div>
+
+      <h2 class="question" id="question">加载中…</h2>
+
+      <div class="oral" id="oralBar" hidden>
+        <button type="button" class="oral-btn" id="oralBtn">◉ 60 秒口述</button>
+        <span class="oral-clock" id="oralClock" hidden>60s</span>
+        <div class="oral-track" id="oralTrack" hidden><i id="oralFill"></i></div>
+        <audio id="oralAudio" controls hidden></audio>
+        <button type="button" class="ghost-btn small" id="oralClear" hidden>清除录音</button>
+        <p class="oral-tip">录音只保存在本机内存，刷新即清空，不会上传</p>
+      </div>
+
+      <div class="reveal-hint" id="revealHint">
+        <button class="primary-btn" id="revealBtn">揭晓答案<kbd>Space</kbd></button>
+        <p>先口述一遍，再对答案</p>
+      </div>
+
+      <div class="answer" id="answer" hidden>
+        <p class="card-lead" id="cardLead" hidden></p>
+        <section class="ans-block">
+          <h3><span class="ico">◈</span>60 秒口述稿</h3>
+          <p class="script" id="answerText"></p>
+        </section>
+
+        <section class="ans-block" id="pointsBlock">
+          <h3><span class="ico">◇</span>关键词锚点</h3>
+          <div class="points" id="points"></div>
+        </section>
+
+        <section class="ans-block" id="followBlock">
+          <h3><span class="ico">↯</span>最可能被追问</h3>
+          <ul class="followups" id="followups"></ul>
+        </section>
+
+        <section class="ans-block deep-link-block" id="deepLinkBlock" hidden>
+          <a class="deep-link" id="deepLink" href="#">看深读</a>
+        </section>
+
+        <section class="ans-block deep-block" id="deepBlock" hidden>
+          <button class="deep-toggle" id="deepToggle" aria-expanded="false">
+            <span>展开层 B ｜ 深挖</span><span class="caret">▾</span>
+          </button>
+          <div class="deep-body markdown" id="deepBody"></div>
+        </section>
+      </div>
+
+      <div class="self-rate" id="selfRate" hidden>
+        <button class="rate no" data-mark="0"><b>1</b> 不会</button>
+        <button class="rate mid" data-mark="1"><b>2</b> 模糊</button>
+        <button class="rate ok" data-mark="2"><b>3</b> 掌握</button>
+      </div>
+    </article>
+
+    <div class="empty card" id="emptyState" hidden>
+      <h3>没有匹配的题目</h3>
+      <p>换个筛选条件，或清空搜索关键词再试试。</p>
+    </div>
+
+    <div class="stage-nav">
+      <button class="nav-btn" id="prevBtn">← 上一题</button>
+      <div class="dots" id="dots"></div>
+      <button class="nav-btn" id="nextBtn">下一题 →</button>
+    </div>
+
+    <p class="kbd-hint">空格 揭晓 · 1/2/3 自评 · ←/→ 切换 · F 收藏 · R 随机</p>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="dist/dirs.js"></script>
+<script src="store.js"></script>
+<script src="srs.js"></script>
+<script src="app.js"></script>
+<script src="boot.js"></script>
+</body>
+</html>
