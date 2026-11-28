@@ -1998,7 +1998,8 @@
       speech: store.speech,
       retest: store.retest,
       deepMarks: store.deepMarks,
-      notes: store.notes
+      notes: store.notes,
+      algo: store.algo
     };
     const data = { app: 'quiz', version: 4, dir: DIR, exportedAt: new Date().toISOString(), payload: payload };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -2084,7 +2085,7 @@
               store.deepMarks[uid] = mine;
             });
           }
-          ['speech', 'retest', 'notes'].forEach(field => {
+          ['speech', 'retest', 'notes', 'algo'].forEach(field => {
             if (!extra[field] || typeof extra[field] !== 'object') return;
             if (!store[field] || typeof store[field] !== 'object') store[field] = {};
             Object.keys(extra[field]).forEach(k => {
