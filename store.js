@@ -16,6 +16,8 @@
 
   const KEY = 'quiz:v3';
   const KEY_V2 = 'quiz:v2';
+  // 整体覆盖前的旧值备份（只保留最近一份；正常增量写入不备份）
+  const BACKUP_KEY = 'quiz:v3:backup';
   const LEGACY_CARDS = 'uecpp-quiz-v1';
   const LEGACY_QUIZ = 'uecpp-exam-v1';
   const LEGACY_DIR = 'ue-cpp';
@@ -27,8 +29,53 @@
   function read(key) {
     try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
   }
+  function rawGet(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+  // 写入失败不能静默：置错误标记 + 页面顶部提示（body 未就绪时等 DOMContentLoaded）
+  let lastWriteError = null;
+  function showStoreAlert(msg) {
+    const paint = () => {
+      if (!document.body) return;
+      let el = document.getElementById('storeAlert');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'storeAlert';
+        el.className = 'content-alert';
+        el.setAttribute('role', 'alert');
+        document.body.insertBefore(el, document.body.firstChild);
+      }
+      el.innerHTML = '<b>' + msg + '</b><span>本次改动可能没有保存，建议先导出复习包备份。</span>' +
+        '<button type="button" class="content-alert-close" aria-label="关闭">×</button>';
+      el.querySelector('button').onclick = () => { if (el.parentNode) el.parentNode.removeChild(el); };
+    };
+    if (document.body) paint();
+    else document.addEventListener('DOMContentLoaded', paint, { once: true });
+  }
   function write(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* 存储不可用时静默降级 */ }
+    try {
+      localStorage.setItem(key, JSON.stringify(val));
+      lastWriteError = null;
+      return true;
+    } catch (e) {
+      lastWriteError = e;
+      console.error('[store] 写入失败：' + key, e);
+      showStoreAlert('保存失败：浏览器存储不可用或已满。');
+      return false; // 存储不可用时不再让调用方误以为已保存
+    }
+  }
+  // 覆盖 quiz:v3 前调用：把现有原始值原样存到备份键（坏 JSON 也能救回）
+  function backupBeforeOverwrite() {
+    const prev = rawGet(KEY);
+    if (!prev) return false;
+    try {
+      localStorage.setItem(BACKUP_KEY, prev);
+      return true;
+    } catch (e) {
+      lastWriteError = e;
+      console.error('[store] 备份失败：' + BACKUP_KEY, e);
+      return false;
+    }
   }
   function num(v, dft) { return typeof v === 'number' && isFinite(v) ? v : dft; }
 
@@ -259,6 +306,8 @@
     // 已是 v3：只做字段容错
     Object.keys(data.dirs).forEach(k => { data.dirs[k] = normalizeDir(data.dirs[k]); });
   } else {
+    // 会整体覆盖 quiz:v3（迁移或旧值损坏后重建）——先原样备份，只留最近一份
+    backupBeforeOverwrite();
     const v2 = read(KEY_V2);
     data = v2 && v2.dirs ? migrateFromV2(v2) : migrateLegacy();
     migrated = true;
@@ -269,10 +318,12 @@
 
   window.Store = {
     key: KEY,
+    backupKey: BACKUP_KEY,
     version: 3,
     data: data,
     migrated: migrated,
-    save() { write(KEY, data); },
+    lastWriteError() { return lastWriteError; },
+    save() { return write(KEY, data); },
     dir(key) {
       let changed = false;
       if (!data.dirs[key]) {

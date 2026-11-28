@@ -64,6 +64,28 @@
       if (cat && cat !== 'all' && !loaded[cat] && !pending[cat]) ensureCat(cat).catch(() => {});
     }
 
+    // 首屏之后的“闲时预热”：逐个补齐剩余分类包，让切分类/错题本/搜索不再付冷启动网络。
+    // 首屏关键路径不受影响；省流模式或 2G 网络下不预热。
+    let warmTimer = 0;
+    let lastAct = Date.now();
+    ['pointerdown', 'keydown', 'wheel'].forEach(ev =>
+      document.addEventListener(ev, () => { lastAct = Date.now(); }, { passive: true }));
+    function warmAllCats() {
+      if (warmTimer) return;
+      const conn = navigator.connection || {};
+      if (conn.saveData || /(^|-)2g$/.test(conn.effectiveType || '')) return;
+      warmTimer = setTimeout(step, 500);
+      function step() {
+        // 用户正在操作时让路，避免后台解析和交互抢主线程
+        if (Date.now() - lastAct < 800) { warmTimer = setTimeout(step, 400); return; }
+        const next = GROUPS.map(g => g.key).filter(c => !loaded[c] && !pending[c]);
+        if (!next.length) { warmTimer = 0; return; }
+        Promise.all(next.slice(0, 3).map(c => ensureCat(c).catch(() => {}))).then(() => {
+          warmTimer = setTimeout(step, 120);
+        });
+      }
+    }
+
     // 顺序刷到分类交界前，空闲时预取「下一题」所在的分类包（只提前 1 个）
     let prefetchTimer = 0;
     function schedulePrefetch() {
@@ -2071,6 +2093,7 @@
     const bootView = () => {
       setView('quiz');
       posFrozen = false; // 初始化完成后恢复正常记忆
+      warmAllCats(); // 首题上屏后再闲时补其余分类包
     };
     if (warm && warm.cat && !loaded[warm.cat]) ensureCat(warm.cat).then(bootView, bootView);
     else bootView();

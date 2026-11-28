@@ -215,3 +215,33 @@ test('备份提醒：超过 7 天未导出时轻提示且不打断', async ({ pa
   await expect(page.locator('#backupHint')).toContainText('8 天');
   await expect(page.locator('#backupHint')).toContainText('建议导出');
 });
+
+test('数据保险：整体覆盖前备份旧值，且只留最近一份', async ({ page }) => {
+  // 旧值不是合法 v3（version=2），启动时会走迁移并整体重写 quiz:v3
+  const oldRaw = JSON.stringify({ version: 2, theme: 'light', dirs: { 'ue-cpp': { cards: { 'cpp-01': { mark: 2, ts: 1 } } } } });
+  const v2 = JSON.stringify({ version: 2, theme: 'dark', lastDir: 'ue-cpp', dirs: { 'ue-cpp': { cards: { 'cpp-01': { mark: 2, ts: 1 } }, quiz: {} } } });
+  await page.addInitScript(({ a, b }) => {
+    localStorage.setItem('quiz:v3', a);
+    localStorage.setItem('quiz:v2', b);
+  }, { a: oldRaw, b: v2 });
+
+  await page.goto('/quiz.html');
+  await page.waitForFunction(() => document.getElementById('qText').textContent.trim().length > 10);
+
+  const st = await page.evaluate(() => ({
+    backup: localStorage.getItem('quiz:v3:backup'),
+    version: JSON.parse(localStorage.getItem('quiz:v3')).version,
+    cards: Object.keys(JSON.parse(localStorage.getItem('quiz:v3')).dirs['ue-cpp'].cards),
+    keys: Object.keys(localStorage).filter(k => k.indexOf('quiz:v3') === 0).sort()
+  }));
+  expect(st.backup).toBe(oldRaw);
+  expect(st.version).toBe(3);
+  expect(st.cards).toContain('cpp-01');
+  expect(st.keys).toEqual(['quiz:v3', 'quiz:v3:backup']);
+
+  // 正常增量写入（翻题写位置）不应改动备份
+  await page.locator('#nextNav').click();
+  await page.waitForTimeout(400);
+  const after = await page.evaluate(() => localStorage.getItem('quiz:v3:backup'));
+  expect(after).toBe(oldRaw);
+});

@@ -498,8 +498,11 @@
         if (!u) throw new Error('章节包中缺少单元 ' + anchorId);
         cur = { chapterId: meta.chapter, anchorId: anchorId };
         renderUnit(meta, u.body);
-        readState().last = anchorId;
-        Store.save();
+        // 只有用户主动打开/跳转才更新「继续上次读到」；页面默认打开首个单元不算
+        if (!opts.auto) {
+          readState().last = anchorId;
+          Store.save();
+        }
         renderResume();
         expandChapter(meta.chapter);
         markActive(anchorId);
@@ -829,11 +832,11 @@
     } else if (unitNo) {
       const u = byKey[sec + '|' + unitNo] || byKey['cpp|' + unitNo] || byKey['ue|' + unitNo];
       if (u) openUnit(u.id, { silentUrl: true });
-      else if (flat[0]) openUnit(flat[0].id);
+      else if (flat[0]) openUnit(flat[0].id, { auto: true });
     } else if (hash && byAnchor[hash]) {
       openUnit(hash, { silentUrl: true });
     } else if (flat[0]) {
-      openUnit(flat[0].id);
+      openUnit(flat[0].id, { auto: true });
     }
   }
 
