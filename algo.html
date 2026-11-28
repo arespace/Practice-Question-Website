@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:," />
+<title>算法练习 · 手撕题库</title>
+<meta name="description" content="按专题分组的算法与手撕 C++ 练习：题面要点、核心思路、可默写骨架、易错边界，支持白板默写与编译查错。" />
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="quiz.css" />
+<link rel="stylesheet" href="algo.css" />
+</head>
+<body data-page="algo">
+<div class="bg-grid" aria-hidden="true"></div>
+
+<header class="app-header">
+  <button class="icon-btn menu-btn" id="menuBtn" aria-label="打开专题面板">☰</button>
+  <a class="brand" href="index.html" title="返回速背卡片">
+    <div class="brand-mark">A<span>+</span></div>
+    <div class="brand-text">
+      <h1>算法练习 · 手撕题库</h1>
+      <p id="algoSub">按专题分组 · 骨架默写 · 结构检查</p>
+    </div>
+  </a>
+  <nav class="page-switch">
+    <a href="index.html">速背卡</a>
+    <a href="deep.html">深读</a>
+    <a href="quiz.html">检测题</a>
+    <a class="active" href="algo.html">算法练习</a>
+  </nav>
+  <div class="header-stats">
+    <div id="dirSwitch"></div>
+    <div class="hstat"><b id="algoDone">0</b><span>已掌握</span></div>
+    <div class="hstat"><b id="algoTodo">0</b><span>待练</span></div>
+    <button class="icon-btn" id="themeBtn" aria-label="切换主题" title="切换明暗主题">◐</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="rail-head">
+      <div>
+        <p class="rail-eyebrow">练习导航</p>
+        <h2 class="rail-title">专题与筛选</h2>
+      </div>
+      <button class="icon-btn close-btn" id="closeBtn" aria-label="关闭">×</button>
+    </div>
+
+    <div class="sidebar-head">
+      <input id="algoSearch" class="search" type="search" placeholder="搜索题目 / 思路…" autocomplete="off" />
+    </div>
+
+    <div class="rail-block">
+      <div class="rail-label">专题</div>
+      <div class="cat-list" id="algoTopics"></div>
+    </div>
+
+    <div class="rail-block">
+      <div class="rail-label">掌握状态</div>
+      <div class="chip-row" id="markFilter">
+        <button class="chip active" data-mark="all">全部</button>
+        <button class="chip" data-mark="ok">已掌握</button>
+        <button class="chip" data-mark="meh">待加强</button>
+        <button class="chip" data-mark="none">未练</button>
+      </div>
+      <div class="chip-row" id="mustFilter" style="margin-top:8px">
+        <button class="chip active" data-must="all">全部题目</button>
+        <button class="chip" data-must="must">必默写</button>
+      </div>
+    </div>
+
+    <div class="progress-block">
+      <div class="progress-head">
+        <span>掌握进度</span>
+        <span id="algoProgressText">0 / 0</span>
+      </div>
+      <div class="bar"><i id="algoProgressBar"></i></div>
+      <div class="legend">
+        <span><i class="dot ok"></i>掌握 <b id="legendOk">0</b></span>
+        <span><i class="dot mid"></i>待加强 <b id="legendMeh">0</b></span>
+        <span><i class="dot no"></i>未练 <b id="legendNone">0</b></span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="scrim" id="scrim"></div>
+
+  <main class="stage">
+    <div class="stage-bar">
+      <nav class="view-tabs" id="algoNav">
+        <button class="active" data-view="list">题目列表</button>
+        <button data-view="practice">默写练习</button>
+      </nav>
+      <p class="stage-hint" id="algoHint">点「默写练习」进入白板：只给题面，写完再对照参考实现</p>
+    </div>
+
+    <section id="algoList" class="algo-list"></section>
+
+    <section id="algoPractice" class="algo-practice" hidden>
+      <div class="ap-head">
+        <div>
+          <p class="ap-crumb" id="apCrumb"></p>
+          <h2 id="apTitle">选择一道题开始</h2>
+        </div>
+        <div class="ap-head-right">
+          <span class="badge" id="apDiff"></span>
+          <span class="badge must-badge" id="apMust" hidden>必默写</span>
+          <button class="ghost-btn small" id="apBack">返回列表</button>
+        </div>
+      </div>
+
+      <div class="ap-points" id="apPoints"></div>
+
+      <div class="dict-bar" id="apDictBar">
+        <span class="dict-ico">✎</span>
+        <span>默写（白板）：只给题面，写完再对照参考实现</span>
+        <span class="dict-clock" id="apClock">00:00</span>
+        <button class="ghost-btn small" id="apTimerBtn">开始计时</button>
+        <button class="primary-btn small" id="apSubmit">交卷对照</button>
+      </div>
+
+      <textarea id="apInput" class="ap-input" spellcheck="false" autocomplete="off"
+        placeholder="在这里手写 C++ 骨架…（无补全、无语法高亮，模拟白板）"></textarea>
+
+      <div class="ap-review" id="apReview" hidden></div>
+
+      <div class="ap-mark" id="apMark" hidden>
+        <span>掌握状态：</span>
+        <button class="chip" data-mark="ok" type="button">已掌握</button>
+        <button class="chip" data-mark="meh" type="button">待加强</button>
+        <button class="chip" data-mark="none" type="button">重置为未练</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="dist/dirs.js"></script>
+<script src="store.js"></script>
+<script src="algo.js"></script>
+<script src="loader.js"></script>
+<script src="boot.js"></script>
+</body>
+</html>

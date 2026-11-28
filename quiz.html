@@ -25,6 +25,7 @@
     <a href="index.html">速背卡</a>
     <a href="deep.html">深读</a>
     <a class="active" href="quiz.html">检测题</a>
+    <a href="algo.html">算法练习</a>
   </nav>
   <div class="header-stats">
     <div id="dirSwitch"></div>
@@ -85,6 +86,7 @@
         <button class="chip" data-state="right">做对</button>
         <button class="chip" data-state="due">待复习</button>
         <button class="chip" data-state="fav">收藏</button>
+        <button class="chip" data-state="mustwrite">必默写</button>
       </div>
     </div>
 
@@ -144,6 +146,12 @@
         <span class="due-ico">◷</span>
         <span id="dueStripText">今天没有到期的题</span>
         <button class="primary-btn small" id="dueStripBtn" hidden>开始复习</button>
+      </div>
+      <div class="retest-bar" id="retestBar" hidden>
+        <span class="retest-ico">↻</span>
+        <span id="retestText"></span>
+        <button class="ghost-btn small" id="retestFinish">结束回炉</button>
+        <button class="ghost-btn small" id="retestExit">退出</button>
       </div>
       <div class="quiz-toolbar">
         <div class="mode-switch" id="modeSwitch">
@@ -211,12 +219,20 @@
           <span class="badge ghost" id="qUnit"></span>
           <span class="badge p-badge" id="qPrio" hidden></span>
           <span class="badge t-single" id="qType">单选</span>
+          <span class="badge must-badge" id="qMust" hidden>必默写</span>
           <span class="stars" id="qDiff"></span>
           <button class="star" id="favBtn" type="button" title="收藏这道题">☆</button>
         </div>
 
         <div class="q-text" id="qText">加载中…</div>
         <div class="q-body" id="qBody"></div>
+
+        <div class="dict-bar" id="dictBar" hidden>
+          <span class="dict-ico">✎</span>
+          <span>默写（白板）：只给题面，写完再对照参考答案</span>
+          <span class="dict-clock" id="dictClock">00:00</span>
+          <button class="ghost-btn small" id="dictTimerBtn">开始计时</button>
+        </div>
 
         <div class="q-actions" id="qActions">
           <button class="primary-btn" id="submitBtn">提交答案<kbd>Enter</kbd></button>
@@ -236,6 +252,8 @@
         <h3>没有匹配的题目</h3>
         <p>换个分类、题型或状态筛选，或点“只刷错题”前先做几题。</p>
       </div>
+
+      <div class="card retest-summary" id="retestSummary" hidden></div>
 
       <div class="stage-nav">
         <button class="nav-btn" id="prevBtn">← 上一题</button>
@@ -286,6 +304,7 @@
           <button class="chip" data-type="fill">填空</button>
           <button class="chip" data-type="code">编程</button>
         </div>
+        <div class="chip-row" id="wrongCauseFilter"></div>
       </div>
       <div class="wrong-list" id="wrongList"></div>
       <div class="empty card" id="wrongEmpty" hidden>

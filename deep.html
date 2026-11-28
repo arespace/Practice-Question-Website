@@ -8,6 +8,157 @@
 <meta name="description" content="C++ 与 Unreal Engine C++ 面试基础知识深读：15 章 122 单元，按单元阅读，可与速背卡、检测题互链。" />
 <link rel="stylesheet" href="styles.css" />
 <link rel="stylesheet" href="deep.css" />
+<style>
+/* ===== 深读：划词高亮 + 单元笔记（仅本页，沿用 styles.css 变量） ===== */
+/* 划词后浮现的「标黄」按钮：贴在选区旁，位置由脚本夹在视口内 */
+.deep-hl-btn {
+  position: fixed;
+  z-index: 70;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 46%, transparent);
+  background: linear-gradient(135deg, var(--accent), #8a6cff);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.deep-hl-btn[hidden] { display: none; }
+.deep-hl-btn:hover { filter: brightness(1.07); }
+.deep-hl-btn:active { transform: scale(0.97); }
+
+/* 正文里的高亮：浅黄底、无下划线、跨行/长词不撑破 375px */
+mark.deep-hl {
+  background: color-mix(in srgb, #ffd34d 34%, transparent);
+  color: inherit;
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 0 1px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+[data-theme="light"] mark.deep-hl { background: color-mix(in srgb, #ffe97a 78%, transparent); }
+
+/* 正文下方的「高亮 / 笔记」分区 */
+.deep-xsec {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border);
+}
+.deep-xsec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.deep-xsec-acts, .deep-note-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.deep-mark-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.deep-mark-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-soft);
+}
+.deep-mark-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.deep-mark-del {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: 0.14s;
+}
+.deep-mark-del:hover { color: var(--no); border-color: var(--no); }
+
+.deep-note-btn {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: 0.14s;
+}
+.deep-note-btn:hover { color: var(--text); border-color: var(--accent); }
+.deep-note-btn.primary {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+  background: var(--accent-soft);
+}
+.deep-note-btn.danger:hover { color: var(--no); border-color: var(--no); }
+
+.deep-note-body { font-size: 12.5px; line-height: 1.75; color: var(--text-dim); min-width: 0; }
+.deep-note-line { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+.deep-note-empty { margin: 0; font-size: 11.5px; line-height: 1.7; color: var(--text-faint); }
+.deep-note-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 86px;
+  max-height: 320px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.7;
+  resize: vertical;
+}
+.deep-note-input:focus { outline: none; border-color: var(--accent); }
+.deep-note-count { margin-top: 5px; font-size: 10px; color: var(--text-faint); }
+
+@media (max-width: 520px) {
+  .deep-mark-text { font-size: 11px; }
+  .deep-note-body { font-size: 12px; }
+}
+</style>
 </head>
 <body class="deep-page" data-page="deep">
 <div class="bg-grid" aria-hidden="true"></div>
@@ -25,6 +176,7 @@
     <a href="index.html">速背卡</a>
     <a class="active" href="deep.html">深读</a>
     <a href="quiz.html">检测题</a>
+    <a href="algo.html">算法练习</a>
   </nav>
   <div class="header-stats">
     <div id="dirSwitch"></div>
@@ -91,6 +243,7 @@
   </main>
 </div>
 
+<button type="button" class="deep-hl-btn" id="deepHlBtn" hidden>标黄</button>
 <div class="toast" id="toast"></div>
 
 <script src="dist/dirs.js"></script>

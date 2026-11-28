@@ -7,7 +7,7 @@
 
   const DIRS = Array.isArray(window.DIRS) ? window.DIRS : [];
   const attr = document.body.getAttribute('data-page');
-  const page = attr === 'quiz' ? 'quiz' : attr === 'deep' ? 'deep' : 'cards';
+  const page = attr === 'quiz' ? 'quiz' : attr === 'deep' ? 'deep' : attr === 'algo' ? 'algo' : 'cards';
   const type = page;
 
   // 内容异常提示条：单条坏数据只跳过并累计，不让整页白屏
@@ -56,7 +56,9 @@
     ? '检测题 · ' + meta.title + ' 查缺补漏'
     : page === 'deep'
       ? '深读 · ' + meta.title + ' 基础知识'
-      : meta.title + ' 刷题台';
+      : page === 'algo'
+        ? '算法练习 · ' + meta.title + ' 手撕题库'
+        : meta.title + ' 刷题台';
   if (wanted !== key) {
     try {
       const url = new URL(location.href);
@@ -68,7 +70,7 @@
   // 页面内互链带上方向，切换页面不丢上下文
   document.querySelectorAll('a[href]').forEach(a => {
     const href = a.getAttribute('href');
-    if (/^(index|quiz|deep)\.html(\?.*)?$/.test(href)) {
+    if (/^(index|quiz|deep|algo)\.html(\?.*)?$/.test(href)) {
       a.setAttribute('href', href.replace(/\?.*$/, '') + '?dir=' + encodeURIComponent(key));
     }
   });
@@ -76,7 +78,27 @@
   renderDirSwitch();
 
   if (!meta.counts || !meta.counts[type]) {
-    return fail('「' + meta.title + '」暂未提供' + (type === 'cards' ? '速背卡' : type === 'quiz' ? '检测题' : '深读') + '内容。');
+    return fail('「' + meta.title + '」暂未提供' + (type === 'cards' ? '速背卡' : type === 'quiz' ? '检测题' : type === 'algo' ? '算法练习' : '深读') + '内容。');
+  }
+
+  // 算法练习：独立内容包（题目 + 专题），整包加载后交给 AlgoApp
+  if (type === 'algo') {
+    const file = 'dist/content/' + key + '.algo.js';
+    window.LoadBundle(file, () => {
+      const bag = window.CONTENT && window.CONTENT[key];
+      return !!(bag && bag.algo);
+    }).then(() => {
+      const bag = window.CONTENT && window.CONTENT[key];
+      if (!bag || !bag.algo) return fail('内容包格式不正确：' + file);
+      try {
+        if (window.AlgoApp) window.AlgoApp.start({ dir: key, meta: meta, data: bag.algo });
+        else fail('算法练习页面脚本未加载');
+      } catch (e) {
+        ContentAlert.report('页面初始化', e);
+        fail('页面初始化失败：' + (e && e.message ? e.message : e));
+      }
+    }).catch(() => fail('内容包加载失败：' + file));
+    return;
   }
 
   // 深读：先加载全局索引，再由 DeepApp 按章节按需加载正文包
@@ -150,7 +172,7 @@
     });
     sel.addEventListener('change', () => {
       Store.setLastDir(sel.value);
-      location.href = (page === 'quiz' ? 'quiz.html' : page === 'deep' ? 'deep.html' : 'index.html') + '?dir=' + encodeURIComponent(sel.value);
+      location.href = (page === 'quiz' ? 'quiz.html' : page === 'deep' ? 'deep.html' : page === 'algo' ? 'algo.html' : 'index.html') + '?dir=' + encodeURIComponent(sel.value);
     });
     label.appendChild(sel);
     host.appendChild(label);

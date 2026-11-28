@@ -7,6 +7,222 @@
 <title>C++ / UEC++ 面试刷题台</title>
 <meta name="description" content="C++ 与 Unreal Engine C++ 面试刷题：口述稿、关键词锚点、追问与深挖。" />
 <link rel="stylesheet" href="styles.css" />
+<style>
+/* ---------- 口述转写 + 锚点评分（仅 index.html 使用，故内联） ---------- */
+.speech {
+  margin: 10px 0 0;
+  padding: 12px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.speech-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.speech-head h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.speech-head .speech-state { font-size: 11px; color: var(--text-dim); }
+.speech-head .ghost-btn { margin-left: auto; }
+.speech-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
+.speech-actions .oral-btn { height: 28px; }
+.speech-steps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.speech-steps span {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  background: var(--bg-soft);
+}
+.speech-steps span.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.speech-steps span.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.speech-timer { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.speech-clock { min-width: 40px; font-family: var(--mono); font-size: 12px; color: var(--text); }
+.speech-track { flex: 1 1 100px; height: 4px; border-radius: 3px; overflow: hidden; background: var(--bg-soft); }
+.speech-track i { display: block; height: 100%; width: 100%; background: var(--accent); transition: width 0.25s linear; }
+.speech-followup {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border-left: 3px solid var(--accent-2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-2) 10%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.speech-rule { margin: 9px 0 0; font-size: 11px; line-height: 1.6; color: var(--text-faint); }
+.speech button:disabled { opacity: 0.45; cursor: not-allowed; }
+.speech-live {
+  margin: 9px 0 0;
+  padding: 9px 11px;
+  max-height: 140px;
+  overflow: auto;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.speech-live .interim { color: var(--text-faint); }
+.speech-fallback { margin-top: 10px; min-width: 0; }
+.speech-note { margin: 0 0 8px; font-size: 11.5px; line-height: 1.6; color: var(--mid); overflow-wrap: anywhere; }
+.speech-fallback textarea {
+  display: block;
+  width: 100%;
+  min-height: 78px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.speech-fallback textarea:focus { outline: none; border-color: var(--accent); }
+.speech-fallback .primary-btn.small { height: 32px; margin-top: 8px; padding: 0 13px; font-size: 12px; }
+.speech-error {
+  margin: 9px 0 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--no) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--no) 12%, transparent);
+  color: var(--no);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.speech-result { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border); min-width: 0; }
+.speech-score-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.speech-cmp { font-size: 12px; color: var(--text-dim); }
+.speech-pass {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.speech-pass.ok { color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 50%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.speech-pass.no { color: var(--no); border: 1px solid color-mix(in srgb, var(--no) 50%, transparent); background: color-mix(in srgb, var(--no) 12%, transparent); }
+.speech-layer { margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--border); min-width: 0; }
+.speech-layer:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+.speech-layer-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.speech-layer-head b { font-size: 12px; font-weight: 650; color: var(--text-dim); }
+.speech-layer-score { font-family: var(--mono); font-size: 22px; font-weight: 700; line-height: 1.1; color: var(--accent); }
+.speech-layer-score small { margin-left: 2px; font-size: 11px; font-weight: 500; color: var(--text-faint); }
+.speech-verdicts { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.speech-verdicts li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 7px 10px;
+  border-left: 3px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.speech-verdicts li b { flex: none; font-size: 11px; font-weight: 700; }
+.speech-verdicts li span { min-width: 0; overflow-wrap: anywhere; }
+.speech-verdicts .hit { border-left-color: var(--ok); }
+.speech-verdicts .hit b { color: var(--ok); }
+.speech-verdicts .miss { border-left-color: var(--mid); }
+.speech-verdicts .miss b { color: var(--mid); }
+.speech-verdicts .wrong { border-left-color: var(--no); }
+.speech-verdicts .wrong b { color: var(--no); }
+.speech-advice { margin: 10px 0 0; font-size: 13px; line-height: 1.7; color: var(--text); overflow-wrap: anywhere; }
+.speech-advice b { color: var(--accent-2); }
+.speech-meta { margin: 8px 0 0; font-size: 11px; color: var(--text-faint); overflow-wrap: anywhere; }
+.speech-text { margin-top: 10px; }
+.speech-text summary { cursor: pointer; font-size: 12px; color: var(--text-dim); }
+.speech-text p { margin: 7px 0 0; font-size: 12.5px; line-height: 1.7; color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+.speech-history { display: grid; gap: 8px; margin-top: 10px; max-height: 320px; overflow: auto; }
+.speech-hist {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  font-size: 12px;
+}
+.speech-hist-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.speech-hist-time { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.speech-hist-del {
+  margin-left: auto;
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.speech-hist-del:hover { color: var(--no); border-color: var(--no); }
+.speech-hist-q { margin: 6px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--text-dim); overflow-wrap: anywhere; }
+.speech-hist-v { margin: 6px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--text-dim); overflow-wrap: anywhere; }
+.speech-hist-v b { font-weight: 700; }
+.speech-hist-v b.hit { color: var(--ok); }
+.speech-hist-v b.miss { color: var(--mid); }
+.speech-hist-v b.wrong { color: var(--no); }
+.speech-hist details { margin-top: 6px; }
+.speech-hist details summary { cursor: pointer; font-size: 11.5px; color: var(--text-dim); }
+.speech-hist details p { margin: 6px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--text-faint); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---------- DeepSeek 评分设置弹窗 ---------- */
+.llm-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(5, 8, 14, 0.66);
+  backdrop-filter: blur(3px);
+}
+[data-theme="light"] .llm-mask { background: rgba(20, 30, 50, 0.34); }
+.llm-box {
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow);
+}
+.llm-head { display: flex; align-items: center; gap: 10px; }
+.llm-head h3 { margin: 0; font-size: 15px; }
+.llm-head .icon-btn { margin-left: auto; }
+.llm-field { display: block; margin-top: 12px; }
+.llm-field span { display: block; margin-bottom: 5px; font-size: 11.5px; color: var(--text-dim); }
+.llm-field input {
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.llm-field input:focus { outline: none; border-color: var(--accent); }
+.llm-note { margin: 12px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--text-faint); }
+.llm-foot { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-top: 14px; }
+.llm-foot .primary-btn.small { height: 34px; padding: 0 15px; font-size: 12.5px; }
+.llm-state { font-size: 11.5px; color: var(--text-dim); }
+</style>
 </head>
 <body data-page="cards">
 <div class="bg-grid" aria-hidden="true"></div>
@@ -24,6 +240,7 @@
     <a class="active" href="index.html">速背卡</a>
     <a href="deep.html">深读</a>
     <a href="quiz.html">检测题</a>
+    <a href="algo.html">算法练习</a>
   </nav>
   <div class="header-stats">
     <div id="dirSwitch"></div>
@@ -134,6 +351,9 @@
         <a class="tq-row" id="queueWrong" href="quiz.html">
           <b id="qWrongNum">0</b><span>道到期错题</span><em>去检测题 →</em>
         </a>
+        <a class="tq-row" id="queueAlgo" href="algo.html">
+          <b id="qAlgoNum">0</b><span>道算法题 · 已掌握 <i id="qAlgoDone">0</i></span><em>去算法练习 →</em>
+        </a>
         <div class="tq-row tq-weak">
           <span class="tq-label">薄弱单元</span>
           <div class="tq-weak-list" id="qWeakList"></div>
@@ -164,6 +384,40 @@
         <button type="button" class="ghost-btn small" id="oralClear" hidden>清除录音</button>
         <p class="oral-tip">录音只保存在本机内存，刷新即清空，不会上传</p>
       </div>
+
+      <section class="speech" id="speechPanel" hidden aria-label="两层口述训练">
+        <div class="speech-head">
+          <h3>两层口述训练</h3>
+          <span class="speech-state" id="speechKeyState">未配置 Key</span>
+          <button type="button" class="ghost-btn small" id="speechHistoryBtn" hidden>口述历史（0）</button>
+          <button type="button" class="ghost-btn small" id="speechCfgBtn">评分设置</button>
+        </div>
+        <div class="speech-steps" id="speechSteps">
+          <span data-step="1">① 主答 90 秒</span>
+          <span data-step="2">② 追问 60 秒</span>
+          <span data-step="3">③ 出师判定</span>
+        </div>
+        <div class="speech-timer" id="speechTimer" hidden>
+          <span class="speech-clock" id="speechClock">90s</span>
+          <div class="speech-track" id="speechTimerTrack"><i id="speechTimerFill"></i></div>
+        </div>
+        <div class="speech-actions">
+          <button type="button" class="oral-btn" id="speechStartBtn">开始主答（90 秒）</button>
+          <button type="button" class="ghost-btn small" id="speechStopBtn" hidden>提前结束</button>
+          <button type="button" class="ghost-btn small" id="speechScoreBtn" disabled>重新评分</button>
+        </div>
+        <p class="speech-followup" id="speechFollowup" hidden></p>
+        <p class="speech-live" id="speechLive" hidden></p>
+        <div class="speech-fallback" id="speechFallback" hidden>
+          <p class="speech-note" id="speechNote">语音识别不可用，可手动输入刚才说的内容。</p>
+          <textarea id="speechManual" rows="4" maxlength="2000" placeholder="手动输入/粘贴我刚才说的内容"></textarea>
+          <button type="button" class="primary-btn small" id="speechManualBtn">用这段文字评分</button>
+        </div>
+        <p class="speech-error" id="speechError" hidden></p>
+        <p class="speech-rule" id="speechRules">出师标准：主答 ≥ 70 分且无「说错」，追问 ≥ 60 分；两层都过才算过关。</p>
+        <div class="speech-result" id="speechResult" hidden></div>
+        <div class="speech-history" id="speechHistory" hidden></div>
+      </section>
 
       <div class="reveal-hint" id="revealHint">
         <button class="primary-btn" id="revealBtn">揭晓答案<kbd>Space</kbd></button>
@@ -222,6 +476,33 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="llm-mask" id="llmDialog" hidden>
+  <div class="llm-box" role="dialog" aria-modal="true" aria-labelledby="llmTitle">
+    <div class="llm-head">
+      <h3 id="llmTitle">DeepSeek 评分设置</h3>
+      <button type="button" class="icon-btn" id="llmClose" aria-label="关闭">×</button>
+    </div>
+    <label class="llm-field">
+      <span>API Key</span>
+      <input id="llmKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" />
+    </label>
+    <label class="llm-field">
+      <span>接口地址（baseURL）</span>
+      <input id="llmBase" type="text" autocomplete="off" spellcheck="false" placeholder="https://api.deepseek.com" />
+    </label>
+    <label class="llm-field">
+      <span>模型</span>
+      <input id="llmModel" type="text" autocomplete="off" spellcheck="false" placeholder="deepseek-chat" />
+    </label>
+    <p class="llm-note">Key 只保存在本机浏览器，不会上传到本站服务器；评分时直接发往你填的接口地址。清除后需重新填写。</p>
+    <div class="llm-foot">
+      <button type="button" class="primary-btn small" id="llmSave">保存</button>
+      <button type="button" class="ghost-btn small" id="llmClear">清除 Key</button>
+      <span class="llm-state" id="llmState">当前未配置</span>
+    </div>
+  </div>
+</div>
 
 <script src="dist/dirs.js"></script>
 <script src="store.js"></script>

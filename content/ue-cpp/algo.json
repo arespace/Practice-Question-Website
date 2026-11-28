@@ -1,0 +1,765 @@
+{
+  "version": 1,
+  "dir": "ue-cpp",
+  "topics": [
+    { "key": "array", "name": "数组 / 双指针 / 哈希", "why": "这五道覆盖了哈希去重、排序后双指针、原地修改三类基本手法，面试现场最常出现" },
+    { "key": "string", "name": "字符串", "why": "滑动窗口和字符串模拟，手写时容易在边界上翻车，正好练边界" },
+    { "key": "list", "name": "链表", "why": "LRU 是游戏客户端真会用到的结构，也是「能不能把哈希表和双向链表接起来」的经典考法" },
+    { "key": "stack", "name": "栈 / 队列", "why": "单调队列这类结构在帧同步、消息队列的场景题里会出现" },
+    { "key": "tree", "name": "树", "why": "迭代版遍历是「你到底会不会用栈」的分水岭，很多人只会递归" },
+    { "key": "sort", "name": "排序与二分", "why": "手写快排和归并几乎是客户端岗位的固定题，考的是你对递归、边界和稳定性的理解" },
+    { "key": "graph", "name": "图 / BFS / 入门 DP", "why": "前两道练网格 BFS/DFS，后三道足够应付客户端岗的 DP 深度，不用再往后刷" },
+    { "key": "hand", "name": "手撕 C++ 基础", "why": "这几个的命中率比中等难度算法题高，而且能顺势带出 RAII、移动语义、内存序这些 C++ 问题" },
+    { "key": "game", "name": "游戏方向的现场小题", "why": "" }
+  ],
+  "items": [
+    {
+      "id": "lc-1",
+      "topic": "array",
+      "group": "lc",
+      "no": "1",
+      "title": "两数之和",
+      "diff": 1,
+      "points": "给定整数数组和目标值，返回和为 target 的两个下标；每个输入只有一个答案，同一元素不能用两次。",
+      "idea": "边遍历边把「值 → 下标」存进哈希表；每个数只需查 target - num 是否已出现，命中即返回。一次遍历代替两重循环，先查后存保证不会用到自己。",
+      "skeleton": "class Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        unordered_map<int,int> seen;              // 值 -> 下标\n        for (int i = 0; i < (int)nums.size(); ++i) {\n            auto it = seen.find(target - nums[i]);\n            if (it != seen.end()) return {it->second, i};\n            seen[nums[i]] = i;                    // 先查再存，避免同一个元素用两次\n        }\n        return {};\n    }\n};",
+      "pitfalls": [
+        "先存后查会让 nums[i] 自己配对自己，返回两个相同下标",
+        "哈希表要存原数组下标，只存值就拿不到答案"
+      ],
+      "complexity": "时间 O(n)，空间 O(n)",
+      "must": false
+    },
+    {
+      "id": "lc-15",
+      "topic": "array",
+      "group": "lc",
+      "no": "15",
+      "title": "三数之和",
+      "diff": 2,
+      "points": "找出所有和为 0 且不重复的三元组，答案里不能有重复组合。",
+      "idea": "先排序，固定第一个数后对后面区间做左右双指针；三数和小于 0 左指针右移，大于 0 右指针左移。排序后相同值相邻，跳过重复的固定值和指针值即可去重。",
+      "skeleton": "class Solution {\npublic:\n    vector<vector<int>> threeSum(vector<int>& a) {\n        sort(a.begin(), a.end());\n        vector<vector<int>> out;\n        for (int i = 0; i + 2 < (int)a.size(); ++i) {\n            if (i && a[i] == a[i-1]) continue;          // 固定值去重\n            int l = i + 1, r = (int)a.size() - 1;\n            while (l < r) {\n                int s = a[i] + a[l] + a[r];\n                if (s < 0) ++l;\n                else if (s > 0) --r;\n                else {\n                    out.push_back({a[i], a[l], a[r]});\n                    while (l < r && a[l] == a[l+1]) ++l; // 指针去重\n                    while (l < r && a[r] == a[r-1]) --r;\n                    ++l; --r;\n                }\n            }\n        }\n        return out;\n    }\n};",
+      "pitfalls": [
+        "只在固定值处去重、指针处不去重，会输出重复三元组",
+        "去重后忘了同时 ++l 和 --r，会死循环或漏解"
+      ],
+      "complexity": "时间 O(n²)，空间 O(1)（不含答案）",
+      "must": false
+    },
+    {
+      "id": "lc-11",
+      "topic": "array",
+      "group": "lc",
+      "no": "11",
+      "title": "盛最多水的容器",
+      "diff": 2,
+      "points": "给定高度数组，选两条线跟 x 轴围成容器，求最大蓄水量。",
+      "idea": "左右指针从两端开始，面积 = 较短边 × 底边宽度。每次移动较短的那条边，因为移动长边不可能让面积变大。",
+      "skeleton": "class Solution {\npublic:\n    int maxArea(vector<int>& h) {\n        int l = 0, r = (int)h.size() - 1, best = 0;\n        while (l < r) {\n            best = max(best, min(h[l], h[r]) * (r - l));\n            if (h[l] < h[r]) ++l; else --r;   // 只有移动短边才有机会变大\n        }\n        return best;\n    }\n};",
+      "pitfalls": [
+        "高度取 min 而不是 max，算出来的面积是错的上界",
+        "移动长边会漏掉最优解，必须移动短边"
+      ],
+      "complexity": "时间 O(n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-283",
+      "topic": "array",
+      "group": "lc",
+      "no": "283",
+      "title": "移动零",
+      "diff": 1,
+      "points": "把所有 0 移到末尾，非零元素保持相对顺序，必须原地修改。",
+      "idea": "用一个写指针记录下一个非零元素该放的位置；遍历时遇到非零就写到写指针处，最后把剩余位置补 0。",
+      "skeleton": "class Solution {\npublic:\n    void moveZeroes(vector<int>& a) {\n        int w = 0;\n        for (int x : a) if (x != 0) a[w++] = x;\n        while (w < (int)a.size()) a[w++] = 0;\n    }\n};",
+      "pitfalls": [
+        "用 erase 或另开数组，破坏原地 / O(1) 空间的要求",
+        "补 0 时用 size 而不是写指针，会越界或漏补"
+      ],
+      "complexity": "时间 O(n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-88",
+      "topic": "array",
+      "group": "lc",
+      "no": "88",
+      "title": "合并两个有序数组",
+      "diff": 1,
+      "points": "nums1 前 m 个有效、后 n 个是空位，把 nums2 合并进 nums1 且保持有序。",
+      "idea": "从后往前比，把较大的放到 nums1 末尾，避免从前往后覆盖还没用到的元素。收尾时只需补 nums2 剩余部分。",
+      "skeleton": "class Solution {\npublic:\n    void merge(vector<int>& a, int m, vector<int>& b, int n) {\n        int i = m - 1, j = n - 1, k = m + n - 1;\n        while (i >= 0 && j >= 0) a[k--] = (a[i] > b[j]) ? a[i--] : b[j--];\n        while (j >= 0) a[k--] = b[j--];   // a 剩下的已经在正确位置\n    }\n};",
+      "pitfalls": [
+        "从前往后写会覆盖 nums1 里还没比较的元素",
+        "收尾只需补 nums2，补 nums1 是多余且容易越界的"
+      ],
+      "complexity": "时间 O(m+n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-3",
+      "topic": "string",
+      "group": "lc",
+      "no": "3",
+      "title": "无重复字符的最长子串",
+      "diff": 2,
+      "points": "求不含重复字符的最长连续子串长度。",
+      "idea": "滑动窗口 + 记录字符最近一次出现的位置；遇到重复就把左边界跳到上次位置之后。窗口内始终无重复，右指针每步右移一次。",
+      "skeleton": "class Solution {\npublic:\n    int lengthOfLongestSubstring(string s) {\n        vector<int> last(128, -1);\n        int l = 0, best = 0;\n        for (int r = 0; r < (int)s.size(); ++r) {\n            if (last[s[r]] >= l) l = last[s[r]] + 1;  // 只跳窗口内的重复\n            last[s[r]] = r;\n            best = max(best, r - l + 1);\n        }\n        return best;\n    }\n};",
+      "pitfalls": [
+        "左边界要用 max(l, last+1)，直接赋值可能把 l 往回拉",
+        "把 ASCII 当全部字符，遇到中文 / emoji 要换 unordered_map"
+      ],
+      "complexity": "时间 O(n)，空间 O(1)（字符集固定）",
+      "must": false
+    },
+    {
+      "id": "lc-5",
+      "topic": "string",
+      "group": "lc",
+      "no": "5",
+      "title": "最长回文子串",
+      "diff": 2,
+      "points": "返回字符串中最长的回文子串（连续）。",
+      "idea": "枚举每个回文中心（奇数长度是单字符、偶数长度是两字符之间），向两边扩到不相等为止，记录最长区间。中心有 2n-1 个，每个最多扩 n 步。",
+      "skeleton": "class Solution {\npublic:\n    string longestPalindrome(string s) {\n        int n = s.size(), bestL = 0, bestR = 0;\n        auto grow = [&](int l, int r) {\n            while (l >= 0 && r < n && s[l] == s[r]) { --l; ++r; }\n            if (r - l - 1 > bestR - bestL + 1) { bestL = l + 1; bestR = r - 1; }\n        };\n        for (int c = 0; c < n; ++c) { grow(c, c); grow(c, c + 1); }\n        return s.substr(bestL, bestR - bestL + 1);\n    }\n};",
+      "pitfalls": [
+        "只枚举单字符中心会漏掉偶数长度回文",
+        "扩张结束后区间是 [l+1, r-1]，直接用 l、r 会多带一个字符"
+      ],
+      "complexity": "时间 O(n²)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-415",
+      "topic": "string",
+      "group": "lc",
+      "no": "415",
+      "title": "字符串相加",
+      "diff": 1,
+      "points": "两个非负整数字符串相加，不能转成整型（会溢出），返回字符串。",
+      "idea": "从末尾逐位相加，用 carry 记进位，结果反向拼接后翻转。注意两个串长度不同与最后的进位。",
+      "skeleton": "class Solution {\npublic:\n    string addStrings(string a, string b) {\n        string out;\n        int i = a.size() - 1, j = b.size() - 1, carry = 0;\n        while (i >= 0 || j >= 0 || carry) {\n            int s = carry + (i >= 0 ? a[i--] - '0' : 0) + (j >= 0 ? b[j--] - '0' : 0);\n            out.push_back(char('0' + s % 10));\n            carry = s / 10;\n        }\n        reverse(out.begin(), out.end());\n        return out;\n    }\n};",
+      "pitfalls": [
+        "循环条件漏掉 carry，最高位进位会丢",
+        "下标自减和取值写在一起，先减后取容易越界"
+      ],
+      "complexity": "时间 O(max(m,n))，空间 O(1)（不含结果）",
+      "must": false
+    },
+    {
+      "id": "lc-14",
+      "topic": "string",
+      "group": "lc",
+      "no": "14",
+      "title": "最长公共前缀",
+      "diff": 1,
+      "points": "在一组字符串里找最长公共前缀，没有就返回空串。",
+      "idea": "以第一个串为基准，逐列比较所有串同一位置；某个串越界或字符不同就截断。也可以两两 reduce。",
+      "skeleton": "class Solution {\npublic:\n    string longestCommonPrefix(vector<string>& v) {\n        if (v.empty()) return \"\";\n        for (int i = 0; i < (int)v[0].size(); ++i) {\n            char c = v[0][i];\n            for (int k = 1; k < (int)v.size(); ++k)\n                if (i >= (int)v[k].size() || v[k][i] != c) return v[0].substr(0, i);\n        }\n        return v[0];\n    }\n};",
+      "pitfalls": [
+        "空数组没提前返回，v[0] 越界",
+        "先取 v[k][i] 再判长度，短串会越界"
+      ],
+      "complexity": "时间 O(总字符数)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-206",
+      "topic": "list",
+      "group": "lc",
+      "no": "206",
+      "title": "反转链表",
+      "diff": 1,
+      "points": "把单链表整体反转，返回新头结点。",
+      "idea": "三指针 prev / cur / next 迭代，逐个把 cur->next 指向 prev。最后 prev 就是新头。",
+      "skeleton": "class Solution {\npublic:\n    ListNode* reverseList(ListNode* head) {\n        ListNode* prev = nullptr;\n        while (head) {\n            ListNode* nxt = head->next;\n            head->next = prev;\n            prev = head;\n            head = nxt;\n        }\n        return prev;\n    }\n};",
+      "pitfalls": [
+        "先改 next 再存 next，会丢掉后半段链表",
+        "返回 head 而不是 prev，返回的是空"
+      ],
+      "complexity": "时间 O(n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-21",
+      "topic": "list",
+      "group": "lc",
+      "no": "21",
+      "title": "合并两个有序链表",
+      "diff": 1,
+      "points": "把两个升序链表合并成一个升序链表，复用原结点。",
+      "idea": "用哨兵结点简化头结点处理，每次把较小的结点接到尾部并移动该链表指针。某条走完后直接接上另一条。",
+      "skeleton": "class Solution {\npublic:\n    ListNode* mergeTwoLists(ListNode* a, ListNode* b) {\n        ListNode dummy(0), *t = &dummy;\n        while (a && b) {\n            if (a->val <= b->val) { t->next = a; a = a->next; }\n            else { t->next = b; b = b->next; }\n            t = t->next;\n        }\n        t->next = a ? a : b;\n        return dummy.next;\n    }\n};",
+      "pitfalls": [
+        "忘了 tail 前进，会覆盖已接好的结点",
+        "收尾要用条件表达式接剩余链表，不能只判一个"
+      ],
+      "complexity": "时间 O(m+n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-141",
+      "topic": "list",
+      "group": "lc",
+      "no": "141",
+      "title": "环形链表",
+      "diff": 1,
+      "points": "判断链表里有没有环。",
+      "idea": "快慢指针，慢指针走一步、快指针走两步；有环必相遇，无环快指针先到尾。空间 O(1)，比哈希表省内存。",
+      "skeleton": "class Solution {\npublic:\n    bool hasCycle(ListNode* head) {\n        ListNode* slow = head, *fast = head;\n        while (fast && fast->next) {\n            slow = slow->next;\n            fast = fast->next->next;\n            if (slow == fast) return true;\n        }\n        return false;\n    }\n};",
+      "pitfalls": [
+        "循环条件只判 fast，fast->next->next 会空指针",
+        "比较结点指针而不是值，值相同不代表同一个结点"
+      ],
+      "complexity": "时间 O(n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-143",
+      "topic": "list",
+      "group": "lc",
+      "no": "143",
+      "title": "重排链表",
+      "diff": 2,
+      "points": "把 L0→L1→…→Ln 重排成 L0→Ln→L1→Ln-1→…，必须原地改指针。",
+      "idea": "三步：快慢指针找中点并断开、反转后半段、两段交替合并。这样不用额外数组。",
+      "skeleton": "class Solution {\npublic:\n    void reorderList(ListNode* head) {\n        if (!head || !head->next) return;\n        ListNode* slow = head, *fast = head;\n        while (fast->next && fast->next->next) { slow = slow->next; fast = fast->next->next; }\n        ListNode* mid = slow->next; slow->next = nullptr;      // 断成两段\n        ListNode* b = nullptr;                                  // 反转后半段\n        while (mid) { ListNode* n = mid->next; mid->next = b; b = mid; mid = n; }\n        ListNode* a = head;\n        while (b) {                                             // 交替合并\n            ListNode* an = a->next, *bn = b->next;\n            a->next = b; b->next = an;\n            a = an; b = bn;\n        }\n    }\n};",
+      "pitfalls": [
+        "不断开中点，合并时会成环",
+        "奇数长度时后半段更短，合并循环要以 b 为准"
+      ],
+      "complexity": "时间 O(n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-146",
+      "topic": "list",
+      "group": "lc",
+      "no": "146",
+      "title": "LRU 缓存",
+      "diff": 2,
+      "points": "实现 get / put，容量满时淘汰最久未使用的键，两个操作都要 O(1)。",
+      "idea": "哈希表存 key → 链表迭代器，双向链表按访问顺序排列：访问或写入就移到头部，超容量就删尾部。哨兵结点省掉空链表特判。",
+      "skeleton": "class LRUCache {\n    int cap;\n    list<pair<int,int>> lru;                                   // 头部最新\n    unordered_map<int, list<pair<int,int>>::iterator> pos;\npublic:\n    LRUCache(int capacity) : cap(capacity) {}\n    int get(int key) {\n        auto it = pos.find(key);\n        if (it == pos.end()) return -1;\n        lru.splice(lru.begin(), lru, it->second);              // 移到头部，迭代器保持有效\n        return it->second->second;\n    }\n    void put(int key, int value) {\n        auto it = pos.find(key);\n        if (it != pos.end()) { it->second->second = value; lru.splice(lru.begin(), lru, it->second); return; }\n        if ((int)lru.size() == cap) { pos.erase(lru.back().first); lru.pop_back(); }\n        lru.emplace_front(key, value);\n        pos[key] = lru.begin();\n    }\n};",
+      "pitfalls": [
+        "用 vector 或每次线性查找链表，get 就不是 O(1)",
+        "淘汰时忘了同步从哈希表删除，会留下悬空迭代器"
+      ],
+      "complexity": "get / put 均 O(1)，空间 O(capacity)",
+      "must": true
+    },
+    {
+      "id": "lc-20",
+      "topic": "stack",
+      "group": "lc",
+      "no": "20",
+      "title": "有效的括号",
+      "diff": 1,
+      "points": "判断括号串是否合法：类型匹配、顺序正确、每个左括号都有对应右括号。",
+      "idea": "左括号入栈，右括号与栈顶比对；不匹配或栈空即失败。遍历完栈必须为空。",
+      "skeleton": "class Solution {\npublic:\n    bool isValid(string s) {\n        unordered_map<char,char> pair{{')','('},{']','['},{'}','{'}};\n        vector<char> st;\n        for (char c : s) {\n            auto it = pair.find(c);\n            if (it == pair.end()) { st.push_back(c); continue; }\n            if (st.empty() || st.back() != it->second) return false;\n            st.pop_back();\n        }\n        return st.empty();\n    }\n};",
+      "pitfalls": [
+        "忘记最后判空，\"(\" 会被判成合法",
+        "栈空时直接取 back() 是未定义行为"
+      ],
+      "complexity": "时间 O(n)，空间 O(n)",
+      "must": false
+    },
+    {
+      "id": "lc-155",
+      "topic": "stack",
+      "group": "lc",
+      "no": "155",
+      "title": "最小栈",
+      "diff": 1,
+      "points": "支持 push / pop / top 和常数时间 getMin。",
+      "idea": "再开一个辅助栈，同步记录「当前栈里的最小值」；push 时取 min(新值, 当前最小)，pop 时一起弹。",
+      "skeleton": "class MinStack {\n    vector<int> s, mn;\npublic:\n    void push(int x) { s.push_back(x); mn.push_back(mn.empty() ? x : min(x, mn.back())); }\n    void pop() { s.pop_back(); mn.pop_back(); }\n    int top() { return s.back(); }\n    int getMin() { return mn.back(); }\n};",
+      "pitfalls": [
+        "只在更小值入辅助栈，pop 时要额外判断，容易漏弹",
+        "空栈时调用 top / getMin 未定义，接口约定要写清"
+      ],
+      "complexity": "各操作 O(1)，空间 O(n)",
+      "must": false
+    },
+    {
+      "id": "lc-232",
+      "topic": "stack",
+      "group": "lc",
+      "no": "232",
+      "title": "用栈实现队列",
+      "diff": 1,
+      "points": "只用两个栈实现队列的 push / pop / peek / empty，均摊 O(1)。",
+      "idea": "一个入栈 in、一个出栈 out；pop / peek 时如果 out 为空，就把 in 全部倒过去（顺序反转）。每个元素最多倒一次，所以均摊 O(1)。",
+      "skeleton": "class MyQueue {\n    stack<int> in, out;\n    void shift() { while (!in.empty()) { out.push(in.top()); in.pop(); } }\npublic:\n    void push(int x) { in.push(x); }\n    int pop() { int v = peek(); out.pop(); return v; }\n    int peek() { if (out.empty()) shift(); return out.top(); }\n    bool empty() { return in.empty() && out.empty(); }\n};",
+      "pitfalls": [
+        "每次 pop 都倒栈就退化成 O(n)",
+        "out 非空时也倒栈会打乱顺序"
+      ],
+      "complexity": "push O(1)，pop / peek 均摊 O(1)，空间 O(n)",
+      "must": false
+    },
+    {
+      "id": "lc-239",
+      "topic": "stack",
+      "group": "lc",
+      "no": "239",
+      "title": "滑动窗口最大值",
+      "diff": 3,
+      "points": "返回每个长度为 k 的窗口里的最大值，要求 O(n)。",
+      "idea": "单调递减双端队列存下标：新元素入队前把队尾比它小的都弹出；队首超出窗口就弹出。队首始终是当前窗口最大值。",
+      "skeleton": "class Solution {\npublic:\n    vector<int> maxSlidingWindow(vector<int>& a, int k) {\n        deque<int> q;                       // 存下标，值单调递减\n        vector<int> out;\n        for (int i = 0; i < (int)a.size(); ++i) {\n            while (!q.empty() && a[q.back()] <= a[i]) q.pop_back();\n            q.push_back(i);\n            if (q.front() <= i - k) q.pop_front();\n            if (i >= k - 1) out.push_back(a[q.front()]);\n        }\n        return out;\n    }\n};",
+      "pitfalls": [
+        "队列存值不存下标，无法判断队首是否滑出窗口",
+        "先取队首再判过期，窗口边界会算错"
+      ],
+      "complexity": "时间 O(n)，空间 O(k)",
+      "must": false
+    },
+    {
+      "id": "lc-94",
+      "topic": "tree",
+      "group": "lc",
+      "no": "94",
+      "title": "中序遍历（递归 + 迭代）",
+      "diff": 1,
+      "points": "左 → 根 → 右，递归与显式栈两个版本都要会。",
+      "idea": "迭代版用栈模拟：一路压左孩子到底，弹出即访问，再转向右子树。这样不用递归也不改树结构。",
+      "skeleton": "class Solution {\npublic:\n    vector<int> inorderTraversal(TreeNode* root) {\n        vector<int> out;\n        stack<TreeNode*> st;\n        TreeNode* cur = root;\n        while (cur || !st.empty()) {\n            while (cur) { st.push(cur); cur = cur->left; }\n            cur = st.top(); st.pop();\n            out.push_back(cur->val);\n            cur = cur->right;\n        }\n        return out;\n    }\n};",
+      "pitfalls": [
+        "只压栈不转向右子树，会死循环",
+        "while 条件漏掉 !st.empty()，右子树为空时提前结束"
+      ],
+      "complexity": "时间 O(n)，空间 O(h)",
+      "must": false
+    },
+    {
+      "id": "lc-144",
+      "topic": "tree",
+      "group": "lc",
+      "no": "144",
+      "title": "前序遍历（递归 + 迭代）",
+      "diff": 1,
+      "points": "根 → 左 → 右，迭代版要保证先访问根再压孩子。",
+      "idea": "用一个栈，弹出即访问，然后先压右孩子再压左孩子，这样左孩子先出栈。或者按「根右左」遍历后整体反转。",
+      "skeleton": "class Solution {\npublic:\n    vector<int> preorderTraversal(TreeNode* root) {\n        vector<int> out;\n        if (!root) return out;\n        stack<TreeNode*> st;\n        st.push(root);\n        while (!st.empty()) {\n            TreeNode* n = st.top(); st.pop();\n            out.push_back(n->val);\n            if (n->right) st.push(n->right);   // 先压右，左先出\n            if (n->left) st.push(n->left);\n        }\n        return out;\n    }\n};",
+      "pitfalls": [
+        "先压左再压右，出栈顺序变成根右左",
+        "空树没判，栈里塞了空指针会崩"
+      ],
+      "complexity": "时间 O(n)，空间 O(h)",
+      "must": false
+    },
+    {
+      "id": "lc-145",
+      "topic": "tree",
+      "group": "lc",
+      "no": "145",
+      "title": "后序遍历（递归 + 迭代）",
+      "diff": 2,
+      "points": "左 → 右 → 根，迭代版是最难写的一个，要避免访问根两次。",
+      "idea": "记录上一个访问的结点：右孩子已访问或为空才访问根。或者按「根右左」前序后反转，代码最短。",
+      "skeleton": "class Solution {\npublic:\n    vector<int> postorderTraversal(TreeNode* root) {\n        vector<int> out;\n        stack<TreeNode*> st;\n        TreeNode* cur = root, *last = nullptr;\n        while (cur || !st.empty()) {\n            while (cur) { st.push(cur); cur = cur->left; }\n            TreeNode* n = st.top();\n            if (n->right && n->right != last) { cur = n->right; continue; }\n            out.push_back(n->val);\n            st.pop();\n            last = n;\n        }\n        return out;\n    }\n};",
+      "pitfalls": [
+        "不记录 last，会在右子树上反复入栈出不来",
+        "出栈后忘了更新 last，根会被访问两次"
+      ],
+      "complexity": "时间 O(n)，空间 O(h)",
+      "must": false
+    },
+    {
+      "id": "lc-104",
+      "topic": "tree",
+      "group": "lc",
+      "no": "104",
+      "title": "二叉树最大深度",
+      "diff": 1,
+      "points": "求二叉树最大深度（根到最远叶子的结点数）。",
+      "idea": "递归取左右子树较大值加一；也可用层序遍历数层数。空树深度为 0。",
+      "skeleton": "class Solution {\npublic:\n    int maxDepth(TreeNode* root) {\n        if (!root) return 0;\n        return 1 + max(maxDepth(root->left), maxDepth(root->right));\n    }\n};",
+      "pitfalls": [
+        "空树返回 1 而不是 0",
+        "把「结点数」和「边数」混用，答案差 1"
+      ],
+      "complexity": "时间 O(n)，空间 O(h)",
+      "must": false
+    },
+    {
+      "id": "lc-226",
+      "topic": "tree",
+      "group": "lc",
+      "no": "226",
+      "title": "翻转二叉树",
+      "diff": 1,
+      "points": "交换每个结点的左右子树。",
+      "idea": "递归交换左右孩子再分别翻转两棵子树；顺序不敏感。也可以用队列做层序交换。",
+      "skeleton": "class Solution {\npublic:\n    TreeNode* invertTree(TreeNode* root) {\n        if (!root) return nullptr;\n        swap(root->left, root->right);\n        invertTree(root->left);\n        invertTree(root->right);\n        return root;\n    }\n};",
+      "pitfalls": [
+        "只交换根的孩子，忘了递归子树",
+        "用临时指针交换时顺序写反，会丢一棵子树"
+      ],
+      "complexity": "时间 O(n)，空间 O(h)",
+      "must": false
+    },
+    {
+      "id": "lc-102",
+      "topic": "tree",
+      "group": "lc",
+      "no": "102",
+      "title": "二叉树的层序遍历",
+      "diff": 2,
+      "points": "按层返回结点值，每层一个数组。",
+      "idea": "队列里按层处理：先记下当前队列长度 n，只弹 n 个结点，孩子入队留到下一层。",
+      "skeleton": "class Solution {\npublic:\n    vector<vector<int>> levelOrder(TreeNode* root) {\n        vector<vector<int>> out;\n        if (!root) return out;\n        queue<TreeNode*> q;\n        q.push(root);\n        while (!q.empty()) {\n            int n = q.size();\n            vector<int> row;\n            while (n--) {\n                TreeNode* t = q.front(); q.pop();\n                row.push_back(t->val);\n                if (t->left) q.push(t->left);\n                if (t->right) q.push(t->right);\n            }\n            out.push_back(std::move(row));\n        }\n        return out;\n    }\n};",
+      "pitfalls": [
+        "不固定每层 size，会把两层混进同一个数组",
+        "root 为空时直接取 front 崩掉"
+      ],
+      "complexity": "时间 O(n)，空间 O(w)（最宽一层）",
+      "must": false
+    },
+    {
+      "id": "lc-236",
+      "topic": "tree",
+      "group": "lc",
+      "no": "236",
+      "title": "最近公共祖先",
+      "diff": 2,
+      "points": "求二叉树中两个结点的最低公共祖先（结点存在、值唯一）。",
+      "idea": "后序递归：左右子树各返回找到的结点，若两边都非空则当前就是 LCA；否则返回非空的那边。",
+      "skeleton": "class Solution {\npublic:\n    TreeNode* lowestCommonAncestor(TreeNode* r, TreeNode* p, TreeNode* q) {\n        if (!r || r == p || r == q) return r;\n        TreeNode* L = lowestCommonAncestor(r->left, p, q);\n        TreeNode* R = lowestCommonAncestor(r->right, p, q);\n        if (L && R) return r;          // 一边一个，当前即 LCA\n        return L ? L : R;\n    }\n};",
+      "pitfalls": [
+        "把结点值相等当成结点相同（值可能重复）",
+        "只搜一边就返回，会漏掉跨子树的情况"
+      ],
+      "complexity": "时间 O(n)，空间 O(h)",
+      "must": false
+    },
+    {
+      "id": "lc-912",
+      "topic": "sort",
+      "group": "lc",
+      "no": "912",
+      "title": "排序数组（手写快排 + 归并）",
+      "diff": 2,
+      "points": "不许调库，手写快速排序与归并排序，返回升序数组。",
+      "idea": "快排用随机基准避免有序输入退化，partition 后递归两侧；归并用临时数组按段合并，先递归再 merge。快排平均 O(nlogn) 不稳定，归并稳定但要多 O(n) 空间。",
+      "skeleton": "void quickSort(vector<int>& a, int l, int r) {\n    if (l >= r) return;\n    int p = a[l + rand() % (r - l + 1)], i = l, j = r;\n    while (i <= j) {\n        while (a[i] < p) ++i;\n        while (a[j] > p) --j;\n        if (i <= j) swap(a[i++], a[j--]);\n    }\n    quickSort(a, l, j);\n    quickSort(a, i, r);\n}\nvoid mergeSort(vector<int>& a, vector<int>& tmp, int l, int r) {\n    if (l >= r) return;\n    int m = l + (r - l) / 2;\n    mergeSort(a, tmp, l, m); mergeSort(a, tmp, m + 1, r);\n    int i = l, j = m + 1, k = l;\n    while (i <= m && j <= r) tmp[k++] = (a[i] <= a[j]) ? a[i++] : a[j++];\n    while (i <= m) tmp[k++] = a[i++];\n    while (j <= r) tmp[k++] = a[j++];\n    for (int t = l; t <= r; ++t) a[t] = tmp[t];\n}",
+      "pitfalls": [
+        "基准取固定首元素，遇到已排序数组退化成 O(n²)",
+        "归并比较要用 <= 才稳定；右段起点写 m 会重复包含中间元素"
+      ],
+      "complexity": "快排平均 O(nlogn)、最坏 O(n²)；归并 O(nlogn)，空间 O(n)",
+      "must": false
+    },
+    {
+      "id": "lc-215",
+      "topic": "sort",
+      "group": "lc",
+      "no": "215",
+      "title": "数组中的第 K 个最大元素",
+      "diff": 2,
+      "points": "返回数组中第 k 大的元素（排序后第 n-k 个位置），要求优于全排序。",
+      "idea": "用快排的 partition 做快速选择：每次只递归包含目标下标的那一侧，平均 O(n)。也可以维护大小为 k 的小顶堆，O(nlogk)。",
+      "skeleton": "class Solution {\npublic:\n    int findKthLargest(vector<int>& a, int k) {\n        int target = (int)a.size() - k, l = 0, r = (int)a.size() - 1;\n        while (true) {\n            int p = a[l + rand() % (r - l + 1)], i = l, j = r;\n            while (i <= j) {\n                while (a[i] < p) ++i;\n                while (a[j] > p) --j;\n                if (i <= j) swap(a[i++], a[j--]);\n            }\n            if (target <= j) r = j;\n            else if (target >= i) l = i;\n            else return a[target];\n        }\n    }\n};",
+      "pitfalls": [
+        "第 k 大对应下标 n-k，写成 k-1 会取反",
+        "随机基准省掉，退化时是 O(n²)，现场会被追问"
+      ],
+      "complexity": "平均 O(n)，最坏 O(n²)；空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-704",
+      "topic": "sort",
+      "group": "lc",
+      "no": "704",
+      "title": "二分查找",
+      "diff": 1,
+      "points": "在升序数组里找目标值下标，找不到返回 -1。",
+      "idea": "用左闭右开区间 [l, r)，循环条件 l < r，mid 取 l + (r-l)/2 防溢出。每次砍掉一半。",
+      "skeleton": "class Solution {\npublic:\n    int search(vector<int>& a, int t) {\n        int l = 0, r = (int)a.size();\n        while (l < r) {\n            int m = l + (r - l) / 2;\n            if (a[m] == t) return m;\n            if (a[m] < t) l = m + 1; else r = m;\n        }\n        return -1;\n    }\n};",
+      "pitfalls": [
+        "(l+r)/2 在大下标下会溢出",
+        "区间开闭和 while 条件不匹配，容易死循环或漏最后一个元素"
+      ],
+      "complexity": "时间 O(log n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-33",
+      "topic": "sort",
+      "group": "lc",
+      "no": "33",
+      "title": "搜索旋转排序数组",
+      "diff": 2,
+      "points": "升序数组被旋转一次，要求 O(log n) 找目标下标。",
+      "idea": "二分时先判断哪一半是有序的（比较 a[l] 与 a[mid]），再看目标是否落在有序那一半的范围内，决定收缩方向。",
+      "skeleton": "class Solution {\npublic:\n    int search(vector<int>& a, int t) {\n        int l = 0, r = (int)a.size() - 1;\n        while (l <= r) {\n            int m = l + (r - l) / 2;\n            if (a[m] == t) return m;\n            if (a[l] <= a[m]) {                       // 左半有序\n                if (a[l] <= t && t < a[m]) r = m - 1; else l = m + 1;\n            } else {                                  // 右半有序\n                if (a[m] < t && t <= a[r]) l = m + 1; else r = m - 1;\n            }\n        }\n        return -1;\n    }\n};",
+      "pitfalls": [
+        "用 a[l] < a[m] 判有序，遇到 l == m 会误判，要写 <=",
+        "判断目标区间时边界取等写反，会漏掉端点"
+      ],
+      "complexity": "时间 O(log n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-200",
+      "topic": "graph",
+      "group": "lc",
+      "no": "200",
+      "title": "岛屿数量",
+      "diff": 2,
+      "points": "网格里 '1' 是陆地、'0' 是水，四连通算一个岛，统计岛屿个数。",
+      "idea": "遍历网格，遇到未访问的陆地就计数并做一次 DFS/BFS 把整块淹掉（改成 '0' 或访问标记）。每个格子最多访问一次。",
+      "skeleton": "class Solution {\npublic:\n    int numIslands(vector<vector<char>>& g) {\n        int n = g.size(), m = n ? g[0].size() : 0, cnt = 0;\n        function<void(int,int)> flood = [&](int i, int j) {\n            if (i < 0 || j < 0 || i >= n || j >= m || g[i][j] != '1') return;\n            g[i][j] = '0';\n            flood(i+1,j); flood(i-1,j); flood(i,j+1); flood(i,j-1);\n        };\n        for (int i = 0; i < n; ++i) for (int j = 0; j < m; ++j)\n            if (g[i][j] == '1') { ++cnt; flood(i, j); }\n        return cnt;\n    }\n};",
+      "pitfalls": [
+        "只标已访问不判越界，递归会栈溢出",
+        "四连通写成八连通，答案会偏小"
+      ],
+      "complexity": "时间 O(nm)，空间 O(nm)（递归栈最坏）",
+      "must": false
+    },
+    {
+      "id": "lc-994",
+      "topic": "graph",
+      "group": "lc",
+      "no": "994",
+      "title": "腐烂的橘子",
+      "diff": 2,
+      "points": "每分钟腐烂橘子会感染上下左右的新鲜橘子，求全部腐烂所需分钟数，不可能则 -1。",
+      "idea": "多源 BFS：把所有腐烂橘子作为第 0 层入队，逐层扩散并计时。结束后检查是否还有新鲜橘子。",
+      "skeleton": "class Solution {\npublic:\n    int orangesRotting(vector<vector<int>>& g) {\n        int n = g.size(), m = n ? g[0].size() : 0, fresh = 0, mins = 0;\n        queue<pair<int,int>> q;\n        for (int i = 0; i < n; ++i) for (int j = 0; j < m; ++j) {\n            if (g[i][j] == 2) q.push({i,j});\n            else if (g[i][j] == 1) ++fresh;\n        }\n        int dir[5] = {1,0,-1,0,1};\n        while (!q.empty() && fresh) {\n            int sz = q.size();\n            while (sz--) {\n                auto p = q.front(); q.pop();\n                int x = p.first, y = p.second;\n                for (int d = 0; d < 4; ++d) {\n                    int nx = x + dir[d], ny = y + dir[d+1];\n                    if (nx < 0 || ny < 0 || nx >= n || ny >= m || g[nx][ny] != 1) continue;\n                    g[nx][ny] = 2; --fresh; q.push({nx,ny});\n                }\n            }\n            ++mins;\n        }\n        return fresh ? -1 : mins;\n    }\n};",
+      "pitfalls": [
+        "没有新鲜橘子时返回 0，不要在循环里加分钟",
+        "把分钟数按入队次数加，会多算一层"
+      ],
+      "complexity": "时间 O(nm)，空间 O(nm)",
+      "must": false
+    },
+    {
+      "id": "lc-70",
+      "topic": "graph",
+      "group": "lc",
+      "no": "70",
+      "title": "爬楼梯",
+      "diff": 1,
+      "points": "每次走 1 或 2 级，求到第 n 级的方法数。",
+      "idea": "走到第 n 级只能从 n-1 或 n-2 来，所以 f(n)=f(n-1)+f(n-2)，就是斐波那契。用两个变量滚动，空间 O(1)。",
+      "skeleton": "class Solution {\npublic:\n    int climbStairs(int n) {\n        int a = 1, b = 1;              // f(0)=1, f(1)=1\n        for (int i = 2; i <= n; ++i) { int c = a + b; a = b; b = c; }\n        return b;\n    }\n};",
+      "pitfalls": [
+        "初始值设成 0 / 1 会错一位",
+        "n 很大时 int 溢出，要问清范围或用 long long"
+      ],
+      "complexity": "时间 O(n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "lc-322",
+      "topic": "graph",
+      "group": "lc",
+      "no": "322",
+      "title": "零钱兑换",
+      "diff": 2,
+      "points": "给定硬币面额（数量无限）和金额，求凑出金额的最少硬币数，凑不出返回 -1。",
+      "idea": "完全背包，dp[i] 表示凑出 i 的最小硬币数，dp[i]=min(dp[i], dp[i-coin]+1)。初值设成 INF，dp[0]=0。",
+      "skeleton": "class Solution {\npublic:\n    int coinChange(vector<int>& coins, int amount) {\n        const int INF = amount + 1;\n        vector<int> dp(amount + 1, INF);\n        dp[0] = 0;\n        for (int i = 1; i <= amount; ++i)\n            for (int c : coins)\n                if (i >= c) dp[i] = min(dp[i], dp[i - c] + 1);\n        return dp[amount] > amount ? -1 : dp[amount];\n    }\n};",
+      "pitfalls": [
+        "用 INT_MAX 当 INF 再 +1 会溢出成负数",
+        "返回前不判不可达，会把 INF 当答案"
+      ],
+      "complexity": "时间 O(amount × 硬币数)，空间 O(amount)",
+      "must": false
+    },
+    {
+      "id": "lc-53",
+      "topic": "graph",
+      "group": "lc",
+      "no": "53",
+      "title": "最大子数组和",
+      "diff": 1,
+      "points": "求连续子数组的最大和（至少含一个元素）。",
+      "idea": "维护「以当前元素结尾的最大和」：cur = max(x, cur+x)，全局取最大。cur 变成负贡献时直接从当前元素重新开始。",
+      "skeleton": "class Solution {\npublic:\n    int maxSubArray(vector<int>& a) {\n        int cur = a[0], best = a[0];\n        for (int i = 1; i < (int)a.size(); ++i) {\n            cur = max(a[i], cur + a[i]);\n            best = max(best, cur);\n        }\n        return best;\n    }\n};",
+      "pitfalls": [
+        "best 初值设 0，全负数数组会返回 0",
+        "cur 只取 cur+x，不重置会在负数开头时错过更优起点"
+      ],
+      "complexity": "时间 O(n)，空间 O(1)",
+      "must": false
+    },
+    {
+      "id": "hand-shared-ptr",
+      "topic": "hand",
+      "group": "hand",
+      "no": "H1",
+      "title": "实现一个 shared_ptr",
+      "diff": 2,
+      "points": "要实现什么：引用计数智能指针，支持拷贝 / 移动构造与赋值、解引用、get、use_count，最后一个持有者析构时释放对象。",
+      "idea": "判分关注点：控制块与对象生命周期是否解耦、拷贝是否 +1、移动是否置空且不改变计数、自赋值与异常安全。",
+      "skeleton": "template <class T>\nclass SharedPtr {\n    T* ptr_ = nullptr;\n    int* cnt_ = nullptr;\n    void release() {\n        if (cnt_ && --*cnt_ == 0) { delete ptr_; delete cnt_; }\n        ptr_ = nullptr; cnt_ = nullptr;\n    }\npublic:\n    SharedPtr() = default;\n    explicit SharedPtr(T* p) : ptr_(p), cnt_(p ? new int(1) : nullptr) {}\n    SharedPtr(const SharedPtr& o) : ptr_(o.ptr_), cnt_(o.cnt_) { if (cnt_) ++*cnt_; }\n    SharedPtr(SharedPtr&& o) noexcept : ptr_(o.ptr_), cnt_(o.cnt_) { o.ptr_ = nullptr; o.cnt_ = nullptr; }\n    SharedPtr& operator=(SharedPtr o) { swap(o); return *this; }   // copy-and-swap 天然处理自赋值\n    ~SharedPtr() { release(); }\n    void swap(SharedPtr& o) noexcept { std::swap(ptr_, o.ptr_); std::swap(cnt_, o.cnt_); }\n    T& operator*() const { return *ptr_; }\n    T* operator->() const { return ptr_; }\n    T* get() const { return ptr_; }\n    long use_count() const { return cnt_ ? *cnt_ : 0; }\n    explicit operator bool() const { return ptr_ != nullptr; }\n};",
+      "pitfalls": [
+        "移动构造没把源置空，会双删",
+        "赋值不先 +1 就直接减旧计数，自赋值时把自己删掉"
+      ],
+      "complexity": "常被追问：计数为什么放堆上、make_shared 的一次分配、weak_ptr 与循环引用",
+      "must": true
+    },
+    {
+      "id": "hand-string",
+      "topic": "hand",
+      "group": "hand",
+      "no": "H2",
+      "title": "写一个 String 类",
+      "diff": 1,
+      "points": "要实现什么：带指针成员的字符串类，四件套齐全（拷贝构造、拷贝赋值、移动构造、移动赋值）+ 析构，不能浅拷贝。",
+      "idea": "判分关注点：深拷贝、自赋值安全、移动后源对象可析构、异常安全（先分配后释放）。",
+      "skeleton": "class String {\n    char* data_ = nullptr;\n    size_t len_ = 0;\npublic:\n    String(const char* s = \"\") {\n        len_ = strlen(s);\n        data_ = new char[len_ + 1];\n        memcpy(data_, s, len_ + 1);\n    }\n    String(const String& o) : String(o.data_) {}                  // 委托构造，天然异常安全\n    String(String&& o) noexcept : data_(o.data_), len_(o.len_) { o.data_ = nullptr; o.len_ = 0; }\n    String& operator=(String o) { swap(o); return *this; }        // copy-and-swap\n    ~String() { delete[] data_; }\n    void swap(String& o) noexcept { std::swap(data_, o.data_); std::swap(len_, o.len_); }\n    const char* c_str() const { return data_ ? data_ : \"\"; }\n    size_t size() const { return len_; }\n};",
+      "pitfalls": [
+        "只写拷贝构造不写拷贝赋值，默认浅拷贝导致 double free",
+        "移动后源指针不置空，析构时 delete 两次"
+      ],
+      "complexity": "常被追问：SSO 小字符串优化、写时复制、operator= 传值还是 const&",
+      "must": true
+    },
+    {
+      "id": "hand-singleton",
+      "topic": "hand",
+      "group": "hand",
+      "no": "H3",
+      "title": "线程安全单例",
+      "diff": 1,
+      "points": "要实现什么：全局唯一实例，多线程首次访问也安全，析构可控。",
+      "idea": "判分关注点：局部 static 的线程安全初始化（C++11 起保证）、禁用拷贝、是否真的需要懒加载。",
+      "skeleton": "class Singleton {\npublic:\n    static Singleton& instance() {\n        static Singleton inst;          // C++11 起局部 static 初始化线程安全\n        return inst;\n    }\n    Singleton(const Singleton&) = delete;\n    Singleton& operator=(const Singleton&) = delete;\nprivate:\n    Singleton() = default;\n};",
+      "pitfalls": [
+        "双检锁不配 atomic / memory_order，指令重排会拿到半初始化对象",
+        "拷贝构造没 delete，单例可以被复制出来"
+      ],
+      "complexity": "常被追问：静态初始化顺序、atexit 析构顺序、Meyers 单例 vs 饿汉",
+      "must": true
+    },
+    {
+      "id": "hand-queue",
+      "topic": "hand",
+      "group": "hand",
+      "no": "H4",
+      "title": "线程安全队列",
+      "diff": 2,
+      "points": "要实现什么：多生产者多消费者队列，push / try_pop 线程安全，支持关闭后唤醒。",
+      "idea": "判分关注点：mutex 保护队列、condition_variable 等待与通知、用谓词防虚假唤醒、关闭时如何退出。",
+      "skeleton": "template <class T>\nclass BlockingQueue {\n    std::queue<T> q_;\n    std::mutex m_;\n    std::condition_variable cv_;\n    bool closed_ = false;\npublic:\n    void push(T v) {\n        { std::lock_guard<std::mutex> lk(m_); if (closed_) return; q_.push(std::move(v)); }\n        cv_.notify_one();\n    }\n    bool pop(T& out) {\n        std::unique_lock<std::mutex> lk(m_);\n        cv_.wait(lk, [&] { return closed_ || !q_.empty(); });   // 谓词防虚假唤醒\n        if (q_.empty()) return false;\n        out = std::move(q_.front()); q_.pop();\n        return true;\n    }\n    void close() {\n        { std::lock_guard<std::mutex> lk(m_); closed_ = true; }\n        cv_.notify_all();\n    }\n};",
+      "pitfalls": [
+        "wait 不写谓词，会被虚假唤醒后读到空队列",
+        "notify 放在锁里，唤醒后又要抢锁，白白多一次上下文切换"
+      ],
+      "complexity": "常被追问：为什么用 unique_lock、notify_one 与 notify_all 的区别、无锁队列的 ABA",
+      "must": true
+    },
+    {
+      "id": "hand-mem",
+      "topic": "hand",
+      "group": "hand",
+      "no": "H5",
+      "title": "手写 memcpy（处理重叠）与 strlen",
+      "diff": 1,
+      "points": "要实现什么：按字节拷贝并处理源 / 目标重叠，strlen 不用库函数。",
+      "idea": "判分关注点：重叠时从后往前拷、返回 dst、长度计算别越界、指针别名与 unsigned char。",
+      "skeleton": "void* my_memcpy(void* dst, const void* src, size_t n) {\n    if (!dst || !src || n == 0) return dst;\n    unsigned char* d = (unsigned char*)dst;\n    const unsigned char* s = (const unsigned char*)src;\n    if (d > s && d < s + n) {                       // 目标在后且重叠：倒着拷\n        for (size_t i = n; i-- > 0;) d[i] = s[i];\n    } else {\n        for (size_t i = 0; i < n; ++i) d[i] = s[i];\n    }\n    return dst;\n}\nsize_t my_strlen(const char* s) {\n    const char* p = s;\n    while (*p) ++p;\n    return (size_t)(p - s);\n}",
+      "pitfalls": [
+        "重叠时正着拷，源数据会被覆盖，结果错乱",
+        "用 char* 而不是 unsigned char*，高位字节会被符号扩展"
+      ],
+      "complexity": "常被追问：memmove 与 memcpy 的区别、编译器是否会向量化、restrict 语义",
+      "must": true
+    },
+    {
+      "id": "hand-pool",
+      "topic": "hand",
+      "group": "hand",
+      "no": "H6",
+      "title": "对象池",
+      "diff": 2,
+      "points": "要实现什么：预先分配一批对象，acquire 取、release 还，避免频繁 new / delete。",
+      "idea": "判分关注点：空闲链表 O(1) 取还、归还后的构造 / 析构语义、池扩容与线程安全、防止重复归还。",
+      "skeleton": "template <class T, size_t N>\nclass ObjectPool {\n    alignas(T) unsigned char buf_[N][sizeof(T)];\n    T* free_[N] = {};\n    size_t top_ = 0;\npublic:\n    ObjectPool() { for (size_t i = 0; i < N; ++i) free_[i] = reinterpret_cast<T*>(buf_[i]); top_ = N; }\n    template <class... A>\n    T* acquire(A&&... a) {\n        if (!top_) return nullptr;                 // 池满：由调用方决定扩容或等待\n        T* p = free_[--top_];\n        return new (p) T(std::forward<A>(a)...);    // placement new\n    }\n    void release(T* p) {\n        if (!p) return;\n        p->~T();                                   // 显式析构，避免资源泄漏\n        free_[top_++] = p;\n    }\n};",
+      "pitfalls": [
+        "release 不调用析构，池里的对象带着上一轮的资源",
+        "重复 release 同一个对象，空闲链表出现环"
+      ],
+      "complexity": "常被追问：内存对齐、池的线程安全、与 std::pmr 的关系",
+      "must": true
+    },
+    {
+      "id": "hand-timer",
+      "topic": "hand",
+      "group": "hand",
+      "no": "H7",
+      "title": "简单定时器",
+      "diff": 2,
+      "points": "要实现什么：按到期时间顺序触发回调的定时器（游戏里做冷却、延迟任务），支持取消。",
+      "idea": "判分关注点：小顶堆按到期时间排序、每帧只处理已到期任务、取消用 id + 懒删除、时间用单调时钟。",
+      "skeleton": "class TimerMgr {\n    struct Node { long long due; uint64_t seq; std::function<void()> fn; };\n    struct Cmp { bool operator()(const Node& a, const Node& b) const { return a.due > b.due; } };\n    std::priority_queue<Node, std::vector<Node>, Cmp> heap_;\n    std::unordered_set<uint64_t> canceled_;\n    uint64_t seq_ = 0;\npublic:\n    uint64_t add(long long due, std::function<void()> fn) {\n        uint64_t id = ++seq_;\n        heap_.push({due, id, std::move(fn)});\n        return id;\n    }\n    void cancel(uint64_t id) { canceled_.insert(id); }\n    void tick(long long now) {\n        while (!heap_.empty() && heap_.top().due <= now) {\n            auto n = heap_.top(); heap_.pop();\n            if (canceled_.erase(n.seq)) continue;     // 懒删除\n            n.fn();\n        }\n    }\n};",
+      "pitfalls": [
+        "每次 tick 扫全部任务，规模大时掉帧",
+        "用系统时间而不是单调时钟，校时会让定时器跳变"
+      ],
+      "complexity": "常被追问：时间轮、海量定时器的分层方案、回调里再注册定时器",
+      "must": true
+    },
+    {
+      "id": "game-frame",
+      "topic": "game",
+      "group": "game",
+      "no": "G1",
+      "title": "固定步长的帧循环",
+      "diff": 2,
+      "points": "要实现什么：把不稳定的渲染帧率换成固定逻辑步长（如 60Hz），并避免浮点累加漂移。",
+      "idea": "判分关注点：累加器用整数微秒、单帧最多追几步防止死亡螺旋、剩余量做渲染插值。",
+      "skeleton": "const long long STEP_US = 16667;          // 60 Hz\nlong long acc_ = 0, last_ = nowUs();\nvoid frame() {\n    long long now = nowUs();\n    long long dt = now - last_;\n    last_ = now;\n    if (dt > 250000) dt = 250000;          // 切后台回来别一次追太多\n    acc_ += dt;\n    int steps = 0;\n    while (acc_ >= STEP_US && steps < 5) { // 每帧最多追 5 步，防死亡螺旋\n        update(STEP_US / 1e6);\n        acc_ -= STEP_US;\n        ++steps;\n    }\n    double alpha = (double)acc_ / STEP_US; // 渲染插值系数\n    render(alpha);\n}",
+      "pitfalls": [
+        "用 double 累加秒数，长时间运行后精度漂移",
+        "不限制单帧步数，卡顿后一次追几十步直接雪崩"
+      ],
+      "complexity": "常被追问：为什么用整数微秒、alpha 插值怎么用、定时器与帧循环的关系",
+      "must": true
+    },
+    {
+      "id": "game-aabb",
+      "topic": "game",
+      "group": "game",
+      "no": "G2",
+      "title": "AABB 相交判断与点积判朝向",
+      "diff": 1,
+      "points": "要实现什么：判断两个轴对齐包围盒是否相交；用点积判断目标在角色身前还是身后。",
+      "idea": "判分关注点：相交用分离轴（任一轴不重叠即不相交）、边界相接算不算相交要约定、点积前先确认 forward 是单位向量。",
+      "skeleton": "struct AABB { float minX, minY, maxX, maxY; };\nbool overlaps(const AABB& a, const AABB& b) {\n    return a.minX <= b.maxX && b.minX <= a.maxX &&\n           a.minY <= b.maxY && b.minY <= a.maxY;   // 相接算相交，按需改成 <\n}\n// forward 必须是单位向量；dot > 0 表示在前方，< 0 表示身后\nbool inFront(const Vec2& pos, const Vec2& forward, const Vec2& target) {\n    Vec2 d{ target.x - pos.x, target.y - pos.y };\n    return d.x * forward.x + d.y * forward.y > 0.f;\n}",
+      "pitfalls": [
+        "只判一个轴的区间，会把对角方向的盒子判成相交",
+        "forward 没归一化就把点积当投影长度，数值是错的"
+      ],
+      "complexity": "常被追问：OBB 怎么判（分离轴定理）、点积与叉积分别能判什么、y 轴朝下时符号怎么变",
+      "must": true
+    },
+    {
+      "id": "game-fsm",
+      "topic": "game",
+      "group": "game",
+      "no": "G3",
+      "title": "最简单的状态机（Idle / Move / Attack / Dead）",
+      "diff": 2,
+      "points": "要实现什么：角色在四个状态间切换，每帧驱动当前状态的进入 / 更新 / 退出，Dead 是终止态。",
+      "idea": "判分关注点：状态切换时是否成对调用 exit / enter、非法转移是否被拦截、用查表代替 if-else 的扩展性。",
+      "skeleton": "enum class State { Idle, Move, Attack, Dead };\nclass FSM {\n    State cur_ = State::Idle;\n    bool can(State from, State to) const {\n        if (from == State::Dead) return false;                 // Dead 不再转出\n        if (to == State::Dead) return true;\n        if (from == State::Attack) return to == State::Idle || to == State::Move;\n        return true;\n    }\npublic:\n    bool to(State s) {\n        if (s == cur_ || !can(cur_, s)) return false;\n        exit(cur_); cur_ = s; enter(s);\n        return true;\n    }\n    void update(float dt) {\n        switch (cur_) {\n            case State::Idle:   if (wantMove) to(State::Move); break;\n            case State::Move:   if (!wantMove) to(State::Idle); break;\n            case State::Attack: if (animDone) to(State::Idle); break;\n            case State::Dead:   break;\n        }\n        tick(cur_, dt);\n    }\n};",
+      "pitfalls": [
+        "切状态只改枚举不调用 exit / enter，动画和资源状态会错乱",
+        "Dead 状态没拦住转移，角色会「复活」"
+      ],
+      "complexity": "常被追问：状态与动画蓝图怎么同步、行为树和状态机的取舍、分层状态机",
+      "must": true
+    }
+  ]
+}

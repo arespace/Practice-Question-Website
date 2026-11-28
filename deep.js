@@ -305,6 +305,8 @@
     }
 
     function renderUnit(u, body) {
+      dropNoteEdit();
+      hideHlBtn();
       const ch = byChapter[u.chapter] || { no: '', name: '' };
       const quizLink = u.quizCount
         ? '<a class="primary" href="' +
@@ -333,7 +335,12 @@
         '<div class="deep-actions">' + quizLink + cardLink +
         '<a href="' + chapterUrl(ch.id) + '" data-chapter="' + esc(ch.id) + '">本章目录</a>' + nextChLink +
         '<button type="button" class="deep-read' + (isRead(u.id) ? ' on' : '') + '" id="deepReadBtn">' +
-        (isRead(u.id) ? '✓ 已读' : '标为已读') + '</button></div>';
+        (isRead(u.id) ? '✓ 已读' : '标为已读') + '</button></div>' +
+        // 正文下方：本单元高亮列表（有高亮时才显示）+ 单元笔记
+        '<div class="deep-xsec" id="deepMarks" hidden>' +
+        '<div class="deep-xsec-head"><span>本单元高亮</span><span class="deep-xsec-acts">点 × 取消</span></div>' +
+        '<ul class="deep-mark-list" id="deepMarkItems"></ul></div>' +
+        '<div class="deep-xsec" id="deepNote"></div>';
       article.hidden = false;
       emptyEl.hidden = true;
       const rb = document.getElementById('deepReadBtn');
@@ -343,9 +350,14 @@
       posEl.textContent = u.unit + ' / ' + secTotal[u.section];
       buildJumpBar(u);
       enhanceBody();
+      applyMarks(u.id);
+      renderMarkList(u.id);
+      renderNote(u.id);
     }
 
     function renderChapter(ch, intro) {
+      dropNoteEdit();
+      hideHlBtn();
       const unitLinks = ch.units.map(u =>
         '<a href="' + unitUrl(u) + '" data-anchor="' + esc(u.id) + '"><span>单元 ' + u.unit + '</span>' + esc(u.title) + '</a>'
       ).join('');
@@ -486,6 +498,402 @@
           boxes.forEach((box, i) => box.classList.toggle('has-overflow', flags[i]));
         });
       }
+    }
+
+    /* ---------------- 划词高亮（store.deepMarks） ---------------- */
+    const MARK_MIN = 2;
+    const MARK_MAX = 200;
+    const NOTE_MAX = 2000;
+    const hlBtn = document.getElementById('deepHlBtn');
+    let hlRange = null;
+    let hlTimer = null;
+
+    function marksDict() {
+      if (!store.deepMarks || typeof store.deepMarks !== 'object' || Array.isArray(store.deepMarks)) {
+        store.deepMarks = {};
+      }
+      return store.deepMarks;
+    }
+    function notesDict() {
+      if (!store.notes || typeof store.notes !== 'object' || Array.isArray(store.notes)) {
+        store.notes = {};
+      }
+      return store.notes;
+    }
+    // 返回 [{ text, i }]，i 是存储数组里的原始下标（删除时定位用）
+    function marksOf(unitId) {
+      const arr = marksDict()[unitId];
+      if (!Array.isArray(arr)) return [];
+      const out = [];
+      arr.forEach((rec, i) => {
+        if (!rec || typeof rec.text !== 'string') return;
+        const t = rec.text.trim();
+        if (t.length < MARK_MIN) return;
+        out.push({ text: t, i: i, ts: rec.ts });
+      });
+      return out;
+    }
+    function bodyEl() { return article.querySelector('.deep-body'); }
+
+    function hideHlBtn() {
+      hlRange = null;
+      if (hlBtn) hlBtn.hidden = true;
+    }
+
+    // 选区落在正文内且文本长度够，才浮现按钮
+    function syncHlBtn() {
+      if (!hlBtn) return;
+      const sel = window.getSelection();
+      const body = bodyEl();
+      if (!sel || sel.isCollapsed || !sel.rangeCount || !body) return hideHlBtn();
+      const range = sel.getRangeAt(0);
+      if (!body.contains(range.startContainer) || !body.contains(range.endContainer)) return hideHlBtn();
+      const text = String(range.toString() || '').trim();
+      if (text.length < MARK_MIN) return hideHlBtn();
+      hlRange = range.cloneRange();
+      hlBtn.hidden = false;
+      placeHlBtn(range);
+    }
+
+    // 贴在选区末行附近；越界时上下左右都收住，不超出视口
+    function placeHlBtn(range) {
+      const rects = range.getClientRects();
+      let rect = range.getBoundingClientRect();
+      for (let i = rects.length - 1; i >= 0; i--) {
+        if (rects[i].width || rects[i].height) { rect = rects[i]; break; }
+      }
+      if (!rect || (!rect.width && !rect.height)) { hideHlBtn(); return; }
+      const pad = 8;
+      const bw = hlBtn.offsetWidth || 56;
+      const bh = hlBtn.offsetHeight || 30;
+      let left = rect.left + rect.width / 2 - bw / 2;
+      left = Math.min(Math.max(pad, left), Math.max(pad, window.innerWidth - bw - pad));
+      let top = rect.bottom + 6;
+      if (top + bh > window.innerHeight - pad) top = rect.top - bh - 6; // 下方放不下就翻到选区上方
+      top = Math.min(Math.max(pad, top), Math.max(pad, window.innerHeight - bh - pad));
+      hlBtn.style.left = Math.round(left) + 'px';
+      hlBtn.style.top = Math.round(top) + 'px';
+    }
+
+    /* 正文文本节点地图：只处理文本节点，不碰 HTML 结构与转义 */
+    function textSegments(body) {
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          return node.nodeValue && node.nodeValue.length
+            ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        }
+      });
+      const segs = [];
+      let full = '';
+      let n = walker.nextNode();
+      while (n) {
+        segs.push({ node: n, start: full.length, end: full.length + n.nodeValue.length });
+        full += n.nodeValue;
+        n = walker.nextNode();
+      }
+      return { segs: segs, full: full };
+    }
+
+    function unwrapMarks(body) {
+      Array.prototype.slice.call(body.querySelectorAll('mark.deep-hl')).forEach(m => {
+        const p = m.parentNode;
+        if (!p) return;
+        while (m.firstChild) p.insertBefore(m.firstChild, m);
+        p.removeChild(m);
+        p.normalize();
+      });
+    }
+
+    // 跨文本节点的选区会被拆成多段 mark（同一 data-hl），保证不重排既有结构
+    function wrapSegments(segs, start, end, idx) {
+      segs.forEach(seg => {
+        const s = Math.max(start, seg.start);
+        const e = Math.min(end, seg.end);
+        if (e <= s) return;
+        const node = seg.node;
+        if (!node.parentNode) return;
+        let mid = node;
+        const ls = s - seg.start;
+        const want = e - s;
+        if (ls > 0) mid = node.splitText(ls);
+        if (want < mid.nodeValue.length) mid.splitText(want);
+        const mark = document.createElement('mark');
+        mark.className = 'deep-hl';
+        mark.dataset.hl = String(idx);
+        mid.parentNode.insertBefore(mark, mid);
+        mark.appendChild(mid);
+      });
+    }
+
+    // 先清掉旧 mark 再按存储顺序重新包裹「首次出现」，保证刷新/切单元/删除后一致
+    function applyMarks(unitId) {
+      const body = bodyEl();
+      if (!body) return;
+      unwrapMarks(body);
+      const list = marksOf(unitId);
+      if (!list.length) return;
+      const map = textSegments(body);
+      const taken = [];
+      list.forEach(rec => {
+        const text = rec.text;
+        let from = 0;
+        let hit = -1;
+        while (from <= map.full.length - text.length) {
+          const at = map.full.indexOf(text, from);
+          if (at < 0) break;
+          const overlap = taken.some(r => at < r.end && at + text.length > r.start);
+          if (!overlap) { hit = at; break; }
+          from = at + 1;
+        }
+        if (hit < 0) return; // 正文里找不到（例如改了内容或截断后不再匹配）就跳过本条
+        taken.push({ start: hit, end: hit + text.length, idx: rec.i });
+      });
+      taken.sort((a, b) => b.start - a.start).forEach(r => wrapSegments(map.segs, r.start, r.end, r.idx));
+    }
+
+    // 选区落在同一个文本节点内时，就地包 mark（位置准确、不动其它结构）
+    function wrapTextNodeRange(range, idx) {
+      const sc = range.startContainer;
+      if (sc !== range.endContainer || sc.nodeType !== 3 || !sc.parentNode) return false;
+      const s = range.startOffset;
+      const e = range.endOffset;
+      if (e <= s) return false;
+      let mid = sc;
+      if (s > 0) mid = sc.splitText(s);
+      if (e - s < mid.nodeValue.length) mid.splitText(e - s);
+      if (!mid.parentNode) return false;
+      const mark = document.createElement('mark');
+      mark.className = 'deep-hl';
+      mark.dataset.hl = String(idx);
+      mid.parentNode.insertBefore(mark, mid);
+      mark.appendChild(mid);
+      return true;
+    }
+
+    function addMark() {
+      if (!hlRange || !cur.anchorId) return hideHlBtn();
+      const unitId = cur.anchorId;
+      const range = hlRange.cloneRange();
+      const raw = String(hlRange.toString() || '').trim();
+      hideHlBtn();
+      if (raw.length < MARK_MIN) return;
+      const text = raw.length > MARK_MAX ? raw.slice(0, MARK_MAX) : raw;
+      const sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+      const all = marksDict();
+      if (!Array.isArray(all[unitId])) all[unitId] = [];
+      const arr = all[unitId];
+      const dup = arr.some(rec => rec && typeof rec.text === 'string' && rec.text.trim() === text);
+      if (dup) {
+        applyMarks(unitId);
+        renderMarkList(unitId);
+        toast('这段已经标过了');
+        return;
+      }
+      arr.push({ text: text, ts: Date.now() });
+      Store.save();
+      // 未截断且选区在单个文本节点内：按当前选区就地标黄；否则退回「首次出现」重建
+      const inPlace = text.length === raw.length && wrapTextNodeRange(range, arr.length - 1);
+      if (!inPlace) applyMarks(unitId);
+      renderMarkList(unitId);
+      toast('已标黄');
+    }
+
+    function removeMark(unitId, idx) {
+      const all = marksDict();
+      const arr = all[unitId];
+      if (!Array.isArray(arr) || idx < 0 || idx >= arr.length) return;
+      arr.splice(idx, 1);
+      if (!arr.length) delete all[unitId];
+      Store.save();
+      applyMarks(unitId);
+      renderMarkList(unitId);
+      toast('已取消高亮');
+    }
+
+    function markSummary(t) {
+      const s = String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+      return s.length > 60 ? s.slice(0, 60) + '…' : s;
+    }
+
+    function renderMarkList(unitId) {
+      const box = document.getElementById('deepMarks');
+      const ul = document.getElementById('deepMarkItems');
+      if (!box || !ul) return;
+      const arr = marksOf(unitId);
+      ul.innerHTML = '';
+      box.hidden = !arr.length;
+      if (!arr.length) return;
+      arr.forEach(rec => {
+        const li = document.createElement('li');
+        li.className = 'deep-mark-item';
+        const span = document.createElement('span');
+        span.className = 'deep-mark-text';
+        span.textContent = markSummary(rec.text);
+        span.title = rec.text;
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'deep-mark-del';
+        del.dataset.hl = String(rec.i);
+        del.setAttribute('aria-label', '删除这条高亮');
+        del.textContent = '×';
+        del.addEventListener('click', () => removeMark(unitId, rec.i));
+        li.appendChild(span);
+        li.appendChild(del);
+        ul.appendChild(li);
+      });
+    }
+
+    if (hlBtn) {
+      // 按下按钮时不要清掉选区（否则拿不到 hlRange 对应的视觉位置）
+      hlBtn.addEventListener('mousedown', e => e.preventDefault());
+      hlBtn.addEventListener('touchstart', e => { e.preventDefault(); addMark(); }, { passive: false });
+      hlBtn.addEventListener('click', addMark);
+    }
+    document.addEventListener('selectionchange', () => {
+      clearTimeout(hlTimer);
+      hlTimer = setTimeout(syncHlBtn, 120);
+    });
+    // 滚动（含正文内部滚动）/ 点别处 / Esc 都收起浮动按钮
+    window.addEventListener('scroll', hideHlBtn, { passive: true, capture: true });
+    document.addEventListener('mousedown', e => {
+      if (hlBtn && e.target === hlBtn) return;
+      hideHlBtn();
+    }, true);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') hideHlBtn();
+    });
+
+    /* ---------------- 单元笔记（store.notes） ---------------- */
+    let noteEditing = false;
+    let noteUnitId = null; // 当前编辑中的笔记属于哪个单元（切单元时用它比对草稿）
+
+    function noteOf(unitId) {
+      const n = notesDict()[unitId];
+      return n && typeof n.text === 'string' ? n.text : '';
+    }
+
+    // 切单元/切章节前调用：编辑态的草稿丢弃（有内容差异时轻提示）
+    function dropNoteEdit() {
+      if (!noteEditing) return;
+      noteEditing = false;
+      const owner = noteUnitId;
+      noteUnitId = null;
+      const ta = document.getElementById('deepNoteInput');
+      if (!ta || !owner) return;
+      const prev = noteOf(owner).trim();
+      const now = String(ta.value || '').trim();
+      if (now && now !== prev) toast('未保存的笔记已丢弃');
+    }
+
+    function noteBtn(label, cls, fn) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'deep-note-btn' + (cls ? ' ' + cls : '');
+      b.textContent = label;
+      b.addEventListener('click', fn);
+      return b;
+    }
+
+    function renderNote(unitId) {
+      const box = document.getElementById('deepNote');
+      if (!box) return;
+      box.innerHTML = '';
+      const text = noteOf(unitId);
+
+      const head = document.createElement('div');
+      head.className = 'deep-xsec-head';
+      const title = document.createElement('span');
+      title.textContent = '本单元笔记';
+      const acts = document.createElement('span');
+      acts.className = 'deep-note-acts';
+      head.appendChild(title);
+      head.appendChild(acts);
+      box.appendChild(head);
+
+      const body = document.createElement('div');
+      body.className = 'deep-note-body';
+      box.appendChild(body);
+
+      if (noteEditing) {
+        acts.appendChild(noteBtn('保存', 'primary', () => saveNote(unitId)));
+        acts.appendChild(noteBtn('取消', '', () => { noteEditing = false; noteUnitId = null; renderNote(unitId); }));
+
+        const ta = document.createElement('textarea');
+        ta.id = 'deepNoteInput';
+        ta.className = 'deep-note-input';
+        ta.maxLength = NOTE_MAX;
+        ta.rows = 4;
+        ta.placeholder = '记一句自己的理解 / 真实坑 / 面试讲法…（最多 ' + NOTE_MAX + ' 字）';
+        ta.value = text;
+        body.appendChild(ta);
+
+        const count = document.createElement('div');
+        count.className = 'deep-note-count';
+        const sync = () => { count.textContent = ta.value.length + ' / ' + NOTE_MAX; };
+        ta.addEventListener('input', sync);
+        sync();
+        body.appendChild(count);
+
+        setTimeout(() => {
+          try {
+            ta.focus({ preventScroll: true });
+            const end = ta.value.length;
+            ta.setSelectionRange(end, end);
+          } catch (e) { /* ignore */ }
+        }, 0);
+        return;
+      }
+
+      acts.appendChild(noteBtn(text.trim() ? '编辑' : '写笔记', '', () => {
+        noteEditing = true;
+        noteUnitId = unitId;
+        renderNote(unitId);
+      }));
+      if (text.trim()) {
+        acts.appendChild(noteBtn('删除', 'danger', () => {
+          delete notesDict()[unitId];
+          Store.save();
+          renderNote(unitId);
+          toast('笔记已删除');
+        }));
+      }
+
+      if (text.trim()) {
+        // 纯文本按行渲染（textContent 写入，天然转义）
+        text.replace(/\r\n?/g, '\n').split('\n').forEach(line => {
+          const d = document.createElement('div');
+          d.className = 'deep-note-line';
+          d.textContent = line || ' ';
+          body.appendChild(d);
+        });
+      } else {
+        const p = document.createElement('p');
+        p.className = 'deep-note-empty';
+        p.textContent = '还没有笔记。读完这一段，用自己的话记一句，下次切回来还能看到。';
+        body.appendChild(p);
+      }
+    }
+
+    function saveNote(unitId) {
+      const ta = document.getElementById('deepNoteInput');
+      const text = (ta ? String(ta.value) : '').trim().slice(0, NOTE_MAX);
+      noteEditing = false;
+      noteUnitId = null;
+      if (!text) {
+        if (notesDict()[unitId]) {
+          delete notesDict()[unitId];
+          Store.save();
+          toast('内容为空，笔记已删除');
+        } else {
+          toast('内容为空，未保存');
+        }
+      } else {
+        notesDict()[unitId] = { text: text, ts: Date.now() };
+        Store.save();
+        toast('笔记已保存');
+      }
+      renderNote(unitId);
     }
 
     /* ---------------- 打开单元 / 章节 ---------------- */

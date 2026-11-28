@@ -95,7 +95,17 @@
       pos: null,
       filters: null,
       read: null,
-      exportAt: 0
+      exportAt: 0,
+      // 口述转写+评分（每张卡最近一次，prev* 保存上一次分数用于对比）
+      speech: {},
+      // 单元回炉：{ 'sec|unit': { count, lastAt, passed, remaining } }
+      retest: {},
+      // 深读划词高亮：{ unitId: [{ text, ts }] }
+      deepMarks: {},
+      // 深读单元笔记：{ unitId: { text, ts } }
+      notes: {},
+      // 算法练习掌握状态：{ [题目 id]: { mark: 'ok'|'meh', ts } }
+      algo: {}
     };
   }
 
@@ -198,6 +208,12 @@
       : null;
     // 上次导出复习包的时间戳（毫秒，0 = 从未导出）
     d.exportAt = num(d.exportAt, 0);
+    // 新增字段：旧数据缺省为空对象，读取时按空处理（不升版本）
+    d.speech = d.speech && typeof d.speech === 'object' && !Array.isArray(d.speech) ? d.speech : {};
+    d.retest = d.retest && typeof d.retest === 'object' && !Array.isArray(d.retest) ? d.retest : {};
+    d.deepMarks = d.deepMarks && typeof d.deepMarks === 'object' && !Array.isArray(d.deepMarks) ? d.deepMarks : {};
+    d.notes = d.notes && typeof d.notes === 'object' && !Array.isArray(d.notes) ? d.notes : {};
+    d.algo = d.algo && typeof d.algo === 'object' && !Array.isArray(d.algo) ? d.algo : {};
     return d;
   }
 

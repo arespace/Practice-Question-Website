@@ -55,7 +55,7 @@ manifest.dirs.forEach(meta => {
       badgeFrom: s.badgeFrom || '',
       badgeTo: s.badgeTo || ''
     })),
-    counts: { cards: 0, quiz: 0, cardGroups: 0, quizGroups: 0, units: 0, deep: 0, bySection: {} }
+    counts: { cards: 0, quiz: 0, cardGroups: 0, quizGroups: 0, units: 0, deep: 0, algo: 0, algoTopics: 0, bySection: {} }
   };
   const deepMap = deepInfo.dirs[meta.key] || null;
   const prio = priority.load(meta.key);
@@ -194,6 +194,37 @@ manifest.dirs.forEach(meta => {
     failed = true;
     return;
   }
+
+  // 算法练习：题目 + 专题，单独一个内容包（页面按需加载）
+  const algoFile = path.join(CONTENT, meta.key, 'algo.json');
+  if (fs.existsSync(algoFile)) {
+    const src = readJson(algoFile);
+    const topicKeys = new Set((src.topics || []).map(t => t.key));
+    const problems = [];
+    (src.items || []).forEach(it => {
+      if (!it || typeof it.id !== 'string' || !it.id) problems.push('题目缺少 id');
+      else if (!topicKeys.has(it.topic)) problems.push(it.id + ' 的 topic 不在专题清单里：' + it.topic);
+      else if (!it.title) problems.push(it.id + ' 缺少标题');
+      else if (!it.skeleton) problems.push(it.id + ' 缺少参考实现');
+      else if (!Array.isArray(it.pitfalls) || it.pitfalls.length < 2) problems.push(it.id + ' 需要 2 条易错边界');
+    });
+    if (src.dir !== meta.key) problems.push('algo.json 的 dir 与清单不一致: ' + src.dir);
+    if (problems.length) {
+      failed = true;
+      console.error(meta.key + '/algo.json 校验失败：');
+      problems.forEach(p => console.error(' - ' + p));
+    } else {
+      entry.counts.algo = src.items.length;
+      entry.counts.algoTopics = src.topics.length;
+      entry.algoTopics = src.topics.map(t => ({ key: t.key, name: t.name, count: src.items.filter(i => i.topic === t.key).length }));
+      fs.writeFileSync(
+        path.join(DIST_CONTENT, meta.key + '.algo.js'),
+        BANNER + 'window.CONTENT=window.CONTENT||{};window.CONTENT["' + meta.key + '"]=window.CONTENT["' + meta.key + '"]||{};' +
+          'window.CONTENT["' + meta.key + '"].algo=' + JSON.stringify({ dir: meta.key, topics: src.topics, items: src.items }) + ';\n',
+        'utf8'
+      );
+    }
+  }
   outDirs.push(entry);
 });
 
@@ -202,6 +233,6 @@ if (failed) process.exit(1);
 fs.writeFileSync(path.join(DIST, 'dirs.js'), BANNER + 'window.DIRS=' + JSON.stringify(outDirs) + ';\n', 'utf8');
 
 outDirs.forEach(d => {
-  console.log('OK ' + d.key + ' cards=' + d.counts.cards + ' quiz=' + d.counts.quiz + ' cardGroups=' + d.counts.cardGroups + ' quizGroups=' + d.counts.quizGroups + ' units=' + d.counts.units);
+  console.log('OK ' + d.key + ' cards=' + d.counts.cards + ' quiz=' + d.counts.quiz + ' cardGroups=' + d.counts.cardGroups + ' quizGroups=' + d.counts.quizGroups + ' units=' + d.counts.units + ' algo=' + d.counts.algo);
 });
 console.log('-> dist/dirs.js + ' + outDirs.length + ' 组内容包');

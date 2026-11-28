@@ -1,0 +1,114 @@
+/* ===================================================================
+   算法练习页
+   =================================================================== */
+
+.algo-list { display: flex; flex-direction: column; gap: 22px; }
+.algo-empty { padding: 28px 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+.algo-group { display: flex; flex-direction: column; gap: 10px; }
+.ag-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ag-head h2 { margin: 0; font-size: 16px; letter-spacing: 0.2px; }
+.ag-head span { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.ag-why {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 0 8px 8px 0;
+  background: var(--panel-2, rgba(255, 255, 255, .02));
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.ag-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+
+.algo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.algo-card:hover { border-color: var(--border-strong); }
+.ac-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ac-title { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.ac-title h3 { margin: 0; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.ac-no { flex: none; font-family: var(--mono); font-size: 11px; color: var(--accent); }
+.ac-badges { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.ac-topic { margin: 0; font-size: 11.5px; color: var(--text-faint); }
+.ac-points, .ac-idea, .ac-meta { margin: 0; font-size: 12.5px; line-height: 1.75; color: var(--text-dim); overflow-wrap: anywhere; }
+.ac-points b, .ac-idea b { margin-right: 6px; color: var(--text); font-weight: 600; }
+.ac-pitfalls { margin: 0; padding-left: 17px; }
+.ac-pitfalls li { font-size: 12px; line-height: 1.7; color: var(--text-faint); overflow-wrap: anywhere; }
+.ac-meta { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.ac-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.ac-mark.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.ac-mark.meh { color: var(--mid, #e0b64a); border-color: color-mix(in srgb, var(--mid, #e0b64a) 45%, transparent); }
+.badge.diff-1 { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.badge.diff-2 { color: var(--mid, #e0b64a); border-color: color-mix(in srgb, var(--mid, #e0b64a) 40%, transparent); }
+.badge.diff-3 { color: var(--no); border-color: color-mix(in srgb, var(--no) 40%, transparent); }
+
+/* ---------------- 默写练习 ---------------- */
+.algo-practice { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ap-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ap-head h2 { margin: 2px 0 0; font-size: 18px; overflow-wrap: anywhere; }
+.ap-crumb { margin: 0; font-size: 11.5px; color: var(--text-faint); }
+.ap-head-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ap-points {
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.ap-points p { margin: 0 0 6px; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.ap-points p:last-child { margin-bottom: 0; }
+.ap-points b { margin-right: 6px; }
+.ap-tip { font-size: 12px; color: var(--text-faint); }
+
+.ap-input {
+  width: 100%;
+  min-height: 260px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0a0e16;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  resize: vertical;
+  tab-size: 4;
+  outline: none;
+  white-space: pre;
+  overflow: auto;
+}
+.ap-input:focus { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.ap-input:disabled { opacity: .7; }
+
+.ap-review { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ap-idea {
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.ap-idea p { margin: 0 0 6px; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.ap-idea ul { margin: 0 0 6px; padding-left: 18px; }
+.ap-idea li { font-size: 12.5px; line-height: 1.75; color: var(--text-dim); overflow-wrap: anywhere; }
+
+.ap-mark { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); }
+
+@media (max-width: 820px) {
+  .ag-cards { grid-template-columns: 1fr; }
+  .ap-input { min-height: 220px; font-size: 12.5px; }
+}
+
+@media (max-width: 400px) {
+  .algo-card { padding: 11px 12px; }
+  .ac-title h3 { font-size: 13.5px; }
+  .ap-input { font-size: 12px; padding: 10px; }
+}

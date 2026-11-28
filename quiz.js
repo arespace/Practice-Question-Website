@@ -128,7 +128,8 @@
     idx: 0,
     picked: [],
     answered: false,
-    unitFocus: null
+    unitFocus: null,
+    retest: null
   };
 
   // 组卷配置（仅本次会话有效）
@@ -272,6 +273,7 @@
 
   function matches(it) {
     if (state.unitFocus && !(it.section === state.unitFocus.sec && it.unit === state.unitFocus.unit)) return false;
+    if (state.stat === 'mustwrite' && !mustWrite(it)) return false;
     if (state.cat !== 'all' && it.cat !== state.cat) return false;
     if (state.type !== 'all' && it.type !== state.type) return false;
     if (state.prio !== 'all' && it.p !== state.prio) return false;
@@ -288,6 +290,305 @@
     return true;
   }
 
+  /* ---------------- 默写模式（编程题，白板） ---------------- */
+  const MUST_WRITE_KW = ['虚表', '虚函数表', 'shared_ptr', 'unique_ptr', '移动', '右值', '单例', 'string', '智能指针'];
+  function mustWrite(it) {
+    if (!it || it.type !== 'code') return false;
+    const hay = (it.unitTitle || '') + ' ' + (catOf(it).name || '');
+    return MUST_WRITE_KW.some(k => hay.indexOf(k) >= 0);
+  }
+
+  let dictTimer = null;
+  let dictStartAt = 0;
+  function dictTick() {
+    const el = $('dictClock');
+    if (!el) return;
+    const sec = Math.floor((Date.now() - dictStartAt) / 1000);
+    el.textContent = String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
+  }
+  function startDictTimer() {
+    stopDictTimer();
+    dictStartAt = Date.now();
+    dictTick();
+    dictTimer = setInterval(dictTick, 500);
+    const b = $('dictTimerBtn');
+    if (b) b.textContent = '重新计时';
+  }
+  function stopDictTimer() {
+    if (dictTimer) { clearInterval(dictTimer); dictTimer = null; }
+  }
+  function renderDictBar(it) {
+    const bar = $('dictBar');
+    if (!bar) return;
+    const on = !!it && it.type === 'code';
+    bar.hidden = !on;
+    if (!on) { stopDictTimer(); return; }
+    const must = $('dictMust');
+    if (must) must.hidden = !mustWrite(it);
+    if (!dictTimer) {
+      const clk = $('dictClock');
+      if (clk) clk.textContent = '00:00';
+      const b = $('dictTimerBtn');
+      if (b) b.textContent = '开始计时';
+    }
+  }
+
+  // 文本规则结构检查（真编译查错为可选增强，见 tryCompiler）
+  function checkStructure(code) {
+    const out = [];
+    const lines = String(code || '').split('\n');
+    const find = re => { for (let i = 0; i < lines.length; i++) if (re.test(lines[i])) return i; return -1; };
+    const has = re => lines.some(l => re.test(l));
+
+    const newArr = find(/\bnew\s+[A-Za-z_][^;\n]*\[/);
+    if (newArr >= 0 && !has(/delete\s*\[\s*\]/)) out.push({ line: newArr, msg: '用了 new[]，但没有 delete[] 配对' });
+    const newOne = find(/\bnew\s+[A-Za-z_]/);
+    if (newOne >= 0 && newArr < 0 && !has(/\bdelete\s+[A-Za-z_]/) && !has(/unique_ptr|make_unique|shared_ptr/)) {
+      out.push({ line: newOne, msg: '有 new，但没有对应的 delete（或改用智能指针）' });
+    }
+
+    const virt = find(/\bvirtual\b/);
+    if (virt >= 0 && !has(/virtual\s*~\s*\w+/) && !has(/=\s*0\s*;/)) {
+      out.push({ line: virt, msg: '类里有虚函数，但没看到虚析构 virtual ~类名()' });
+    }
+
+    const up = find(/\bunique_ptr\s*<[^>]*>\s+\w+\s*=\s*[^;\n]+/);
+    if (up >= 0 && !/make_unique|std::move|\.release\(|nullptr/.test(lines[up])) {
+      out.push({ line: up, msg: 'unique_ptr 不能拷贝赋值，用 std::move 或 make_unique' });
+    }
+
+    const mv = find(/(\w+)\s*\(\s*(?:const\s+)?\w+\s*&&\s*\)|operator\s*=\s*\(\s*(?:const\s+)?\w+\s*&&\s*\)/);
+    if (mv >= 0 && !/noexcept/.test(lines[mv])) out.push({ line: mv, msg: '移动构造/移动赋值建议标 noexcept' });
+
+    const op = find(/\boperator\s*=\s*\(/);
+    if (op >= 0 && !has(/this\s*==\s*&|this\s*!=\s*&|&\s*\w+\s*==\s*this/)) {
+      out.push({ line: op, msg: '赋值运算符没看到自赋值检查（if (this == &other) return *this）' });
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/(\w+)\s*\(\s*\1\s*\)/);
+      if (m && !/std::move/.test(lines[i]) && i > 0) {
+        out.push({ line: i, msg: '初始化列表 ' + m[1] + '(' + m[1] + ') 建议改成 std::move(' + m[1] + ')' });
+        break;
+      }
+    }
+
+    const retRef = lines.findIndex(l => /^\s*(?:const\s+)?[\w:<>]+\s*&\s*\w+\s*\(/.test(l));
+    if (retRef >= 0) {
+      for (let i = retRef + 1; i < lines.length; i++) {
+        const m = lines[i].match(/^\s*return\s+(\w+)\s*;/);
+        if (!m) continue;
+        const name = m[1];
+        const decl = new RegExp('\\b' + name + '\\s*[;=]');
+        if (decl.test(lines.slice(retRef + 1, i).join('\n')) && !/static/.test(lines[i])) {
+          out.push({ line: i, msg: '可能返回了局部变量的引用：' + name });
+        }
+        break;
+      }
+    }
+    return out;
+  }
+
+  function structPanel(code) {
+    const issues = checkStructure(code);
+    const box = document.createElement('div');
+    box.className = 'struct-check';
+    box.innerHTML = '<h4>结构检查 · ' + (issues.length ? issues.length + ' 项待确认' : '未发现常见坑') + '</h4>' +
+      (issues.length
+        ? '<ul>' + issues.map(x => '<li><b>第 ' + (x.line + 1) + ' 行</b> ' + esc(x.msg) + '</li>').join('') + '</ul>'
+        : '<p class="weak-tip">文本规则只覆盖常见坑，语法/类型错误需编译器。</p>') +
+      '<div class="compile-run">' +
+      '<button type="button" class="ghost-btn small" id="compileRunBtn">用 WASM clang 编译查错</button>' +
+      '<span class="weak-tip">按需加载 ' + CLANG_SIZE + '，只查语法/类型错误，不链接不运行</span>' +
+      '</div>' +
+      '<div class="compile-status" id="compileStatus" hidden></div>';
+    return box;
+  }
+
+  /* ---------------- WASM clang 真编译查错 ----------------
+   * 用 @live-codes/clang-wasm 的 toolchain（classic script，无需打包器），只在用户
+   * 点按钮时才加载，不进首屏关键路径；编译产物留在内存里，后续编译走浏览器缓存。
+   * 只做编译（runtime.compile → 目标文件），不链接、不运行；CDN 不可达或浏览器
+   * 不支持 WASM 时明确降级为「仅结构检查」，不假装编译成功。 */
+  const CLANG_CDN = [
+    'https://unpkg.com/@live-codes/clang-wasm@0.3.0/',
+    'https://cdn.jsdelivr.net/npm/@live-codes/clang-wasm@0.3.0/'
+  ];
+  const CLANG_SIZE = '约 21 MB（clang.wasm 15 MB + sysroot 5.2 MB + 加载器 0.3 MB）';
+  const clang = { tc: null, api: null, pending: null, base: '', loadMs: 0 };
+  let lastMine = '';
+
+  function setCompileStatus(html) {
+    const st = $('compileStatus');
+    if (!st) return;
+    st.hidden = false;
+    st.innerHTML = html;
+  }
+
+  function loadScript(src, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        s.remove();
+        reject(new Error('加载超时'));
+      }, timeoutMs);
+      s.src = src;
+      s.async = true;
+      s.onload = () => { if (done) return; done = true; clearTimeout(timer); resolve(); };
+      s.onerror = () => { if (done) return; done = true; clearTimeout(timer); reject(new Error('加载器脚本请求失败')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function ensureCompiler() {
+    if (clang.tc) return Promise.resolve(clang.tc);
+    if (clang.pending) return clang.pending;
+    const started = performance.now();
+    clang.pending = (async () => {
+      let last = null;
+      try {
+        for (let i = 0; i < CLANG_CDN.length; i++) {
+          const base = CLANG_CDN[i];
+          try {
+            if (!window.clangWasmToolchain) await loadScript(base + 'dist/clang-wasm-toolchain.global.js', 20000);
+            const api = window.clangWasmToolchain;
+            if (!api || !api.createToolchain) throw new Error('加载器未就绪');
+            const tc = await api.createToolchain({
+              baseUrl: base + 'assets/',
+              onProgress: v => setCompileStatus('<p class="compile-note">正在加载编译器资源 ' +
+                Math.round((v || 0) * 100) + '%（' + CLANG_SIZE + '）…</p>')
+            });
+            clang.tc = tc;
+            clang.api = api;
+            clang.base = base;
+            clang.loadMs = performance.now() - started;
+            return tc;
+          } catch (e) {
+            last = e;
+          }
+        }
+        throw last || new Error('CDN 不可达');
+      } finally {
+        clang.pending = null;
+      }
+    })();
+    return clang.pending;
+  }
+
+  // 只编译：runtime.compile 生成目标文件即结束，不进入 wasm-ld，也不执行产物
+  function compileNow(code) {
+    return clang.tc.captureCompilerOutput(() => clang.tc.runtime.compile({
+      input: 'main.cpp',
+      code: code,
+      obj: 'main.o',
+      language: 'CPP',
+      compileArgs: ['-std=gnu++20']
+    }));
+  }
+
+  // 标准库头文件白名单：其余「file not found」算外部头（如 Unreal 的 CoreMinimal.h）
+  const STD_HEADERS = /^(algorithm|any|array|atomic|bit|bitset|cassert|cctype|chrono|cmath|compare|concepts|cstdarg|cstddef|cstdint|cstdio|cstdlib|cstring|ctime|deque|exception|filesystem|functional|future|initializer_list|iomanip|ios|iosfwd|iostream|istream|iterator|limits|list|map|memory|mutex|new|numbers|numeric|optional|ostream|queue|random|ranges|ratio|regex|set|shared_mutex|span|sstream|stack|stdexcept|string|string_view|system_error|thread|tuple|type_traits|typeinfo|unordered_map|unordered_set|utility|variant|vector)(\.h)?$/;
+
+  function parseDiag(raw) {
+    const out = [];
+    const re = /^([^\s:]+):(\d+):(\d+):\s*(fatal error|error|warning):\s*(.*)$/;
+    // 原始流里混着 clang 的命令行日志和 ANSI 色，交给包自带的过滤器先洗一遍
+    const lines = (clang.api && clang.api.compilerDiagnostics)
+      ? clang.api.compilerDiagnostics(raw)
+      : String(raw || '').replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').split(/\r?\n/);
+    lines.forEach(line => {
+      const m = line.match(re);
+      if (m) {
+        const msg = m[5];
+        const fm = msg.match(/'([^']+)' file not found/);
+        out.push({
+          line: Number(m[2]),
+          col: Number(m[3]),
+          kind: m[4],
+          msg: msg,
+          external: !!(fm && !STD_HEADERS.test(fm[1]))
+        });
+        return;
+      }
+      // 没有文件行号的诊断（参数错误、运行时失败）也要收，避免编译器没跑起来却报「没错」
+      const bare = line.match(/^(fatal error|error|warning):\s*(.*)$/);
+      if (bare) out.push({ line: 0, col: 0, kind: bare[1], msg: bare[2], external: false });
+    });
+    return out;
+  }
+
+  function paintCompileResult(diags, ms, err) {
+    const warns = diags.filter(d => d.kind === 'warning');
+    const errs = diags.filter(d => d.kind !== 'warning');
+    const ext = errs.filter(d => d.external);
+    const real = errs.filter(d => !d.external);
+    let html = '<p class="compile-note">编译完成：' + ms + ' ms（加载 ' + (clang.loadMs / 1000).toFixed(1) +
+      ' s）· 只查语法/类型错误，不链接、不运行。</p>';
+    if (!errs.length && !warns.length && err) {
+      // 编译器进程失败但没给出诊断：如实说明，不伪装通过
+      html += '<p class="compile-note warn">编译器没有正常完成：' + esc(String((err && err.message) || err)) +
+        '。本次结果不可用，请看上面的结构检查。</p>';
+      setCompileStatus(html);
+      return;
+    }
+    html += real.length
+      ? '<ul class="compile-diags">' + real.slice(0, 12).map(d =>
+        '<li><b>' + (d.line ? '第 ' + d.line + ' 行' : '编译错误') + '</b> <span>' + esc(d.msg) + '</span></li>').join('') + '</ul>'
+      : '<p class="compile-ok">没有发现语法 / 类型错误。</p>';
+    if (warns.length) {
+      html += '<p class="compile-note">另有 ' + warns.length + ' 条警告（不影响判分），行号：' +
+        warns.slice(0, 8).map(w => w.line).join('、') + '</p>';
+    }
+    if (ext.length) {
+      html += '<p class="compile-note">其中 ' + ext.length + ' 条是缺少外部头文件（例如 Unreal 的 CoreMinimal.h），' +
+        '内置 clang 没有这些头，相关声明无法校验，请结合结构检查判断。</p>';
+    }
+    setCompileStatus(html);
+  }
+
+  function currentCode() {
+    const ta = $('codeInput');
+    return ta ? ta.value : lastMine;
+  }
+
+  async function tryCompiler() {
+    if (!$('compileStatus')) return;
+    const code = currentCode();
+    if (!code.trim()) {
+      setCompileStatus('<p class="compile-note">先写点代码再编译。</p>');
+      return;
+    }
+    const btn = $('compileRunBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '编译器运行中…'; }
+    try {
+      if (!clang.tc) {
+        setCompileStatus('<p class="compile-note">正在按需加载 WASM clang：' + CLANG_SIZE +
+          '，首次通常 5–20 秒，之后走浏览器缓存…</p>');
+        await ensureCompiler();
+      }
+      setCompileStatus('<p class="compile-note">编译器就绪（加载 ' + (clang.loadMs / 1000).toFixed(1) + ' s）· 正在编译…</p>');
+      const started = performance.now();
+      const cap = await compileNow(code);
+      paintCompileResult(parseDiag(cap.raw), Math.round(performance.now() - started), cap.error);
+    } catch (e) {
+      setCompileStatus('<p class="compile-note warn">WASM 编译器不可用（' + esc(String((e && e.message) || e)) +
+        '）：已降级为仅结构检查，上面的文本规则结果仍然有效。</p>');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '用 WASM clang 编译查错'; }
+    }
+  }
+
+  // 脚本在 <head> 里执行，按钮用事件委托，避免 DOM 未就绪时绑定失败
+  document.addEventListener('click', e => {
+    const t = e.target;
+    if (!t || !t.id) return;
+    if (t.id === 'dictTimerBtn') startDictTimer();
+    else if (t.id === 'compileRunBtn') tryCompiler();
+  });
+
   function shuffle(list) {
     for (let i = list.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -298,20 +599,28 @@
 
   function buildDeck(keep) {
     const cur = state.deck[state.idx];
-    let list = ITEMS.filter(matches);
-
-    if (state.mode === 'wrong') list = list.filter(it => isWrong(it.id));
-
-    if (state.mode === 'review') {
-      list = list.filter(it => isDue(it.id))
-        .slice()
-        .sort((a, b) => (recOf(a.id).dueAt || 0) - (recOf(b.id).dueAt || 0));
+    // 单元回炉：只做该单元里尚未连对 2 次的题，不受分类/题型/状态筛选影响
+    let list;
+    if (state.retest) {
+      list = ITEMS.filter(it => !!state.retest.set[it.id]);
+    } else {
+      list = ITEMS.filter(matches);
     }
 
-    if (state.mode === 'smart') {
-      list = pickByConfig(list, true);
-    } else if (state.mode === 'random') {
-      list = shuffle(list.slice());
+    if (!state.retest) {
+      if (state.mode === 'wrong') list = list.filter(it => isWrong(it.id));
+
+      if (state.mode === 'review') {
+        list = list.filter(it => isDue(it.id))
+          .slice()
+          .sort((a, b) => (recOf(a.id).dueAt || 0) - (recOf(b.id).dueAt || 0));
+      }
+
+      if (state.mode === 'smart') {
+        list = pickByConfig(list, true);
+      } else if (state.mode === 'random') {
+        list = shuffle(list.slice());
+      }
     }
 
     state.deck = list;
@@ -327,6 +636,8 @@
   function resetAnswer() {
     state.picked = [];
     state.answered = false;
+    const c = $('fbCause');
+    if (c) c.hidden = true;
   }
 
   function curItem() { return state.deck[state.idx] || null; }
@@ -489,6 +800,7 @@
       } catch (e) {
         brokenQuestion(it, e);
       }
+      renderDictBar(it);
       renderToolbar();
       persistPos();
       if (!it.cat || loaded[it.cat]) schedulePrefetch();
@@ -548,6 +860,8 @@
     }
     $('qType').textContent = TYPE_NAME[it.type] || it.type;
     $('qType').className = 'badge t-' + it.type;
+    const qMust = $('qMust');
+    if (qMust) qMust.hidden = !mustWrite(it);
     const d = Math.max(1, Math.min(3, it.diff || 1));
     $('qDiff').textContent = '★'.repeat(d) + '☆'.repeat(3 - d);
 
@@ -697,9 +1011,11 @@
   function showCodeRef() {    const it = curItem();
     const body = $('qBody');
     if ($('selfGrade')) return;
+    stopDictTimer();
 
     const ta = $('codeInput');
     const mine = ta ? ta.value : '';
+    lastMine = mine;
     if (ta) { store.drafts[it.id] = mine; save(); }
     const ref = String(it.ref || '').trim();
 
@@ -722,6 +1038,9 @@
       box.innerHTML = '<h4>参考答案 / 判分要点</h4>' + esc(ref || '（暂无参考答案）');
       body.appendChild(box);
     }
+
+    // 默写交卷后：结构检查（命中项定位到行）
+    if (mine.trim()) body.appendChild(structPanel(mine));
 
     const grade = document.createElement('div');
     grade.className = 'self-grade';
@@ -824,6 +1143,59 @@
     deep.textContent = '看本题长文 · 单元 ' + it.unit + (it.unitTitle ? ' · ' + it.unitTitle : '');
 
     $('feedback').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    renderCause(it, ok);
+    if (state.retest) {
+      if (ok && passedNow(it)) state.retest.passedSet[it.id] = true;
+      renderRetestBar();
+    }
+  }
+
+  /* ---------------- 错因归类 ---------------- */
+  const CAUSES = [['concept', '概念不清'], ['memory', '记漏'], ['careless', '审题错']];
+  const CAUSE_NAME = { concept: '概念不清', memory: '记漏', careless: '审题错' };
+
+  function causeOf(id) {
+    const r = recOf(id);
+    return r && r.cause && CAUSE_NAME[r.cause] ? r.cause : '';
+  }
+
+  function renderCause(it, ok) {
+    let box = $('fbCause');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'fbCause';
+      box.className = 'fb-cause';
+      $('feedback').insertBefore(box, $('fbExplain'));
+    }
+    if (ok) { box.hidden = true; box.innerHTML = ''; return; }
+    const cur = causeOf(it.id);
+    box.hidden = false;
+    box.innerHTML = '<span class="cause-label">错因归类（可跳过）</span>';
+    const row = document.createElement('div');
+    row.className = 'cause-chips';
+    CAUSES.forEach(([key, name]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip cause-chip' + (cur === key ? ' active' : '');
+      b.textContent = name;
+      b.addEventListener('click', () => {
+        const r = store.quiz[it.id];
+        if (!r) return;
+        if (r.cause === key) { delete r.cause; delete r.causeTs; }
+        else { r.cause = key; r.causeTs = Date.now(); }
+        save();
+        renderCause(it, ok);
+      });
+      row.appendChild(b);
+    });
+    const skip = document.createElement('button');
+    skip.type = 'button';
+    skip.className = 'chip cause-skip';
+    skip.textContent = '跳过';
+    skip.addEventListener('click', () => { box.hidden = true; });
+    row.appendChild(skip);
+    box.appendChild(row);
   }
 
   // 反馈标题：把“连对 n/2”的毕业进度讲清楚，避免用户以为错题永远留着
@@ -872,7 +1244,24 @@
   /* ---------------- wrong book ---------------- */
   let wrongCat = 'all';
   let wrongType = 'all';
+  let wrongCause = 'all';
   let showGrad = false;
+
+  function renderWrongCauseFilter(wrongs) {
+    const wrap = $('wrongCauseFilter');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const opts = [['all', '全部错因'], ['none', '未归类'], ['concept', '概念不清'], ['memory', '记漏'], ['careless', '审题错']];
+    opts.forEach(([key, name]) => {
+      const n = key === 'all' ? wrongs.length : wrongs.filter(it => (causeOf(it.id) || 'none') === key).length;
+      if (!n && key !== 'all') return;
+      const b = document.createElement('button');
+      b.className = 'chip' + (wrongCause === key ? ' active' : '');
+      b.textContent = name + ' · ' + n;
+      b.addEventListener('click', () => { wrongCause = key; renderWrong(); });
+      wrap.appendChild(b);
+    });
+  }
 
   function renderWrongFilters() {
     const wrap = $('wrongCatFilter');
@@ -918,11 +1307,14 @@
     }
     renderWrongFilters();
     document.querySelectorAll('#wrongTypeFilter .chip').forEach(b => b.classList.toggle('active', b.dataset.type === wrongType));
+    const allWrong = ITEMS.filter(it => isWrong(it.id));
+    renderWrongCauseFilter(allWrong);
     const list = $('wrongList');
     list.innerHTML = '';
-    let items = ITEMS.filter(it => isWrong(it.id));
+    let items = allWrong.slice();
     if (wrongCat !== 'all') items = items.filter(it => it.cat === wrongCat);
     if (wrongType !== 'all') items = items.filter(it => it.type === wrongType);
+    if (wrongCause !== 'all') items = items.filter(it => (causeOf(it.id) || 'none') === wrongCause);
     items.sort((a, b) => {
       const ra = recOf(a.id) || {}, rb = recOf(b.id) || {};
       return (rb.ts || 0) - (ra.ts || 0);
@@ -1031,7 +1423,8 @@
       '<span class="badge ghost">' + esc(TYPE_NAME[it.type] || it.type) + '</span>' +
       '<span class="badge ghost">' + esc(unitText) + '</span>' +
       '<span class="badge ghost">错 ' + (r.w || 0) + ' 次</span>' +
-      '<span class="badge streak-badge">连对 ' + Math.min(2, r.streak || 0) + '/2</span>';
+      '<span class="badge streak-badge">连对 ' + Math.min(2, r.streak || 0) + '/2</span>' +
+      (causeOf(it.id) ? '<span class="badge cause-badge">' + CAUSE_NAME[causeOf(it.id)] + '</span>' : '');
     card.appendChild(meta);
 
     const q = document.createElement('div');
@@ -1101,6 +1494,19 @@
     });
     actions.appendChild(redo);
     actions.appendChild(master);
+    // 错题 → 深读（定位到该题所属单元）
+    const deepLink = document.createElement('a');
+    deepLink.className = 'deep-link wrong-deep';
+    deepLink.href = 'deep.html?dir=' + encodeURIComponent(DIR) + '&sec=' + encodeURIComponent(it.section) + '&unit=' + it.unit;
+    deepLink.textContent = '看深读 · 单元 ' + it.unit;
+    actions.appendChild(deepLink);
+    // 回炉：只重做该单元尚未连对 2 次的题
+    const retest = document.createElement('button');
+    retest.className = 'retest-btn';
+    retest.textContent = '回炉本单元';
+    retest.title = '只重做本单元尚未连对 2 次的题';
+    retest.addEventListener('click', () => startRetest(it));
+    actions.appendChild(retest);
     card.appendChild(actions);
     return card;
   }
@@ -1198,6 +1604,7 @@
       byType.appendChild(statRow(TYPE_NAME[tp], done + '/' + items.length + ' 题', attempts ? Math.round(wins / attempts * 100) : null, null));
     });
     body.appendChild(byType);
+    body.appendChild(causePanel());
 
     const weak = rows.filter(r => r.acc != null).slice(0, 3);
     const tip = document.createElement('div');
@@ -1220,6 +1627,36 @@
       });
       return html + '</div>';
     }
+  }
+
+  // 错因分布 + 回炉次数
+  function causePanel() {
+    const box = document.createElement('div');
+    box.className = 'stat-panel';
+    box.style.marginTop = '14px';
+    const counts = { concept: 0, memory: 0, careless: 0 };
+    let un = 0, total = 0;
+    ITEMS.forEach(it => {
+      const r = recOf(it.id);
+      if (!r || !isWrong(it.id)) return;
+      total++;
+      if (r.cause && counts[r.cause] != null) counts[r.cause]++; else un++;
+    });
+    let html = '<h3>错因分布 · 错题本</h3>';
+    if (!total) {
+      html += '<p class="weak-tip">答错后可在反馈里标记错因（概念不清 / 记漏 / 审题错），这里会按错因汇总。</p>';
+    } else {
+      CAUSES.forEach(([k, name]) => {
+        const c = counts[k];
+        html += '<div class="stat-title-row"><span>' + name + '</span><b>' + c + ' 题</b></div>' +
+          '<div class="stat-bar"><i style="width:' + (total ? c / total * 100 : 0) + '%"></i></div>';
+      });
+      html += '<p class="weak-tip">未归类 ' + un + ' 题 · 当前错题 ' + total + ' 题；错题本已支持按错因筛选。</p>';
+    }
+    const rtTotal = Object.keys(store.retest || {}).reduce((s, k) => s + ((store.retest[k] || {}).count || 0), 0);
+    if (rtTotal) html += '<p class="weak-tip">单元回炉累计 ' + rtTotal + ' 次。</p>';
+    box.innerHTML = html;
+    return box;
   }
 
   function statRow(name, sub, acc, catKey) {
@@ -1401,7 +1838,8 @@
     $('statsView').hidden = v !== 'stats';
     $('examView').hidden = v !== 'exam';
     document.querySelectorAll('#topNav button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
-    if (v === 'quiz') { buildDeck(true); renderQuestion(); }
+    if (v !== 'quiz') stopDictTimer();
+    if (v === 'quiz') { buildDeck(true); renderQuestion(); renderRetestBar(); }
     if (v === 'wrong') renderWrong();
     if (v === 'stats') renderStats();
     if (v === 'exam') renderExam();
@@ -1415,11 +1853,119 @@
   function closeSidebar() { $('sidebar').classList.remove('open'); $('scrim').classList.remove('show'); }
 
   function applyFilter() {
+    // 换筛选就退出回炉模式，避免筛选和回炉范围互相打架
+    exitRetest(true);
     buildDeck(false);
     if (state.view !== 'quiz') setView('quiz');
     else { renderQuestion(); renderToolbar(); renderHeader(); renderSidebar(); }
     closeSidebar();
   }
+
+  /* ---------------- 单元回炉（错题 → 深读 → 回炉） ---------------- */
+  function retestKey(sec, unit) { return sec + '|' + unit; }
+
+  function unitPendingIds(it) {
+    return ITEMS.filter(x => x.section === it.section && x.unit === it.unit)
+      .filter(x => {
+        const r = recOf(x.id);
+        return !r || r.streak < SRS.GRADUATE_STREAK;
+      })
+      .map(x => x.id);
+  }
+
+  function startRetest(it) {
+    const ids = unitPendingIds(it);
+    if (!ids.length) { toast('该单元没有需要回炉的题了'); return; }
+    const set = {};
+    ids.forEach(id => { set[id] = true; });
+    state.retest = { sec: it.section, unit: it.unit, title: it.unitTitle || '', set: set, total: ids.length, passedSet: {} };
+    state.cat = 'all';
+    state.type = 'all';
+    state.stat = 'all';
+    state.prio = 'all';
+    state.mode = 'order';
+    state.unitFocus = null;
+    buildDeck(false);
+    const summary = $('retestSummary');
+    if (summary) summary.hidden = true;
+    setView('quiz');
+    renderRetestBar();
+    const prev = store.retest[retestKey(it.section, it.unit)];
+    toast('单元回炉 · ' + ids.length + ' 题' + (prev && prev.count ? '（第 ' + (prev.count + 1) + ' 次）' : ''));
+  }
+
+  function exitRetest(silent) {
+    if (!state.retest) return;
+    state.retest = null;
+    renderRetestBar();
+    if (!silent) {
+      buildDeck(false);
+      renderQuestion();
+      renderToolbar();
+    }
+  }
+
+  function passedNow(it) {
+    const r = recOf(it.id);
+    return !!(r && r.streak >= SRS.GRADUATE_STREAK);
+  }
+
+  function retestProgress() {
+    const rt = state.retest;
+    if (!rt) return null;
+    return { total: rt.total, passed: Object.keys(rt.passedSet).length };
+  }
+
+  function renderRetestBar() {
+    const bar = $('retestBar');
+    if (!bar) return;
+    if (!state.retest) { bar.hidden = true; return; }
+    bar.hidden = false;
+    const p = retestProgress();
+    const cur = curItem();
+    $('retestText').innerHTML = '<b>单元回炉</b> · 单元 ' + esc(state.retest.unit) +
+      (state.retest.title ? ' · ' + esc(state.retest.title) : '') +
+      ' · 已通过 <b>' + p.passed + '</b> / ' + p.total +
+      (cur ? ' · 当前第 ' + (state.idx + 1) + ' / ' + state.deck.length + ' 题' : '');
+  }
+
+  function finishRetest() {
+    const rt = state.retest;
+    if (!rt) return;
+    const passed = Object.keys(rt.passedSet).length;
+    const remaining = rt.total - passed;
+    const key = retestKey(rt.sec, rt.unit);
+    const prev = store.retest[key] || { count: 0 };
+    store.retest[key] = {
+      count: (prev.count || 0) + 1,
+      lastAt: Date.now(),
+      passed: passed,
+      remaining: remaining,
+      total: rt.total
+    };
+    save();
+    const box = $('retestSummary');
+    if (box) {
+      box.hidden = false;
+      box.innerHTML = '<h3>' + (remaining ? '回炉未通过' : '回炉通过 🎉') + '</h3>' +
+        '<p class="weak-tip">单元 ' + esc(rt.unit) + (rt.title ? ' · ' + esc(rt.title) : '') + '：通过 <b>' + passed + '</b> / ' + rt.total +
+        ' 题' + (remaining ? '，仍有 <b>' + remaining + '</b> 题未连续答对 2 次。' : '，本单元已全部毕业。') +
+        '这是第 ' + store.retest[key].count + ' 次回炉。</p>' +
+        '<button type="button" class="primary-btn small" id="retestAgain">再回炉一次</button> ' +
+        '<button type="button" class="ghost-btn small" id="retestClose">退出回炉</button>';
+      box.querySelector('#retestAgain').addEventListener('click', () => {
+        box.hidden = true;
+        startRetest(curItem() || { section: rt.sec, unit: rt.unit, unitTitle: rt.title });
+      });
+      box.querySelector('#retestClose').addEventListener('click', () => {
+        box.hidden = true;
+        exitRetest(false);
+        renderRetestBar();
+      });
+      box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
 
   function applyTheme() {
     document.documentElement.dataset.theme = Store.data.theme;
@@ -1436,7 +1982,12 @@
       drafts: store.drafts,
       daily: store.daily,
       streak: store.streak,
-      goal: store.goal
+      goal: store.goal,
+      read: store.read,
+      speech: store.speech,
+      retest: store.retest,
+      deepMarks: store.deepMarks,
+      notes: store.notes
     };
     const data = { app: 'quiz', version: 4, dir: DIR, exportedAt: new Date().toISOString(), payload: payload };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1460,7 +2011,7 @@
         const inc = raw && raw.payload ? raw.payload : raw;
         if (!inc || typeof inc !== 'object') throw new Error('bad');
 
-        let records = null, fav = null, daily = null, streak = null;
+        let records = null, fav = null, daily = null, streak = null, extra = null;
         if (inc.records && typeof inc.records === 'object') {
           // 旧版导出：payload 就是旧 store
           records = inc.records;
@@ -1474,6 +2025,7 @@
             fav = t.quizFav || t.fav;
             daily = t.daily;
             streak = t.streak;
+            extra = t;
           }
         }
         if (!records || typeof records !== 'object') throw new Error('bad');
@@ -1508,6 +2060,29 @@
         }
         if (streak && typeof streak.days === 'number' && streak.days > (store.streak.days || 0)) {
           store.streak = streak;
+        }
+        // 新增字段（口述评分 / 回炉 / 高亮 / 笔记）：旧导出没有就跳过，按时间较新者覆盖
+        if (extra) {
+          if (extra.deepMarks && typeof extra.deepMarks === 'object') {
+            Object.keys(extra.deepMarks).forEach(uid => {
+              const arr = Array.isArray(extra.deepMarks[uid]) ? extra.deepMarks[uid] : [];
+              const mine = Array.isArray(store.deepMarks[uid]) ? store.deepMarks[uid] : [];
+              const seen = {};
+              mine.forEach(m => { if (m && m.text) seen[m.text] = true; });
+              arr.forEach(m => { if (m && typeof m.text === 'string' && !seen[m.text]) { mine.push(m); seen[m.text] = true; } });
+              store.deepMarks[uid] = mine;
+            });
+          }
+          ['speech', 'retest', 'notes'].forEach(field => {
+            if (!extra[field] || typeof extra[field] !== 'object') return;
+            if (!store[field] || typeof store[field] !== 'object') store[field] = {};
+            Object.keys(extra[field]).forEach(k => {
+              const v = extra[field][k];
+              if (!v || typeof v !== 'object') return;
+              const mine = store[field][k];
+              if (!mine || (mine.ts || mine.lastAt || 0) <= (v.ts || v.lastAt || 0)) store[field][k] = v;
+            });
+          });
         }
         save();
         buildDeck(true);
@@ -1928,6 +2503,7 @@
   });
   $('nextBtn').addEventListener('click', () => {
     if (state.idx >= state.deck.length - 1) {
+      if (state.retest) { finishRetest(); return; }
       toast('本轮完成，可以切分类或点“重开本轮”');
       return;
     }
@@ -1935,6 +2511,12 @@
   });
   $('prevBtn').addEventListener('click', () => go(-1));
   $('nextNav').addEventListener('click', () => go(1));
+  $('retestFinish').addEventListener('click', () => finishRetest());
+  $('retestExit').addEventListener('click', () => {
+    const summary = $('retestSummary');
+    if (summary) summary.hidden = true;
+    exitRetest(false);
+  });
 
   $('exportBtn').addEventListener('click', exportData);
   $('importBtn').addEventListener('click', () => $('importFile').click());
