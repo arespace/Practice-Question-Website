@@ -319,6 +319,8 @@
     /* ---- WASM clang（与检测题同款：按需加载，只编译不链接） ---- */
     const CLANG_CDN = [
       'https://unpkg.com/@live-codes/clang-wasm@0.3.0/',
+      'https://fastly.jsdelivr.net/npm/@live-codes/clang-wasm@0.3.0/',
+      'https://gcore.jsdelivr.net/npm/@live-codes/clang-wasm@0.3.0/',
       'https://cdn.jsdelivr.net/npm/@live-codes/clang-wasm@0.3.0/'
     ];
     const CLANG_SIZE = '约 21 MB（clang.wasm 15 MB + sysroot 5.2 MB + 加载器 0.3 MB）';
@@ -344,6 +346,13 @@
       });
     }
 
+    function withTimeout(p, ms, tag) {
+      return new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(tag + '超时（' + Math.round(ms / 1000) + 's）')), ms);
+        p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+      });
+    }
+
     function ensureCompiler() {
       if (clang.tc) return Promise.resolve(clang.tc);
       if (clang.pending) return clang.pending;
@@ -357,16 +366,19 @@
               if (!window.clangWasmToolchain) await loadScript(base + 'dist/clang-wasm-toolchain.global.js', 20000);
               const api = window.clangWasmToolchain;
               if (!api || !api.createToolchain) throw new Error('加载器未就绪');
-              const tc = await api.createToolchain({
+              const tc = await withTimeout(api.createToolchain({
                 baseUrl: base + 'assets/',
                 onProgress: v => setCompileStatus('<p class="compile-note">正在加载编译器资源 ' +
                   Math.round((v || 0) * 100) + '%（' + CLANG_SIZE + '）…</p>')
-              });
+              }), 90000, '编译器资源加载');
               clang.tc = tc;
               clang.api = api;
               clang.loadMs = performance.now() - started;
               return tc;
-            } catch (e) { last = e; }
+            } catch (e) {
+              last = e;
+              clang.tc = null;
+            }
           }
           throw last || new Error('CDN 不可达');
         } finally {
