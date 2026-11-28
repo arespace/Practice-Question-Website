@@ -102,6 +102,95 @@
 
 .ap-mark { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); }
 
+/* ---------------- 运行与用例 ---------------- */
+.ap-io {
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.ap-io p { margin: 0 0 5px; font-size: 12.5px; line-height: 1.8; color: var(--text-dim); overflow-wrap: anywhere; }
+.ap-io p:last-child { margin-bottom: 0; }
+.ap-io b { margin-right: 6px; color: var(--text); }
+
+.ap-run {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.run-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.run-head h4 { margin: 0; font-size: 13.5px; }
+.run-sum { font-size: 11.5px; color: var(--text-faint); font-family: var(--mono); }
+.run-hint, .run-note { margin: 0; font-size: 11.5px; line-height: 1.7; color: var(--text-faint); overflow-wrap: anywhere; }
+.run-cases { display: flex; flex-direction: column; gap: 8px; }
+
+.run-case {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2, rgba(255, 255, 255, .02));
+}
+.rc-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rc-head b { font-size: 12.5px; }
+.rc-ms { font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-left: auto; }
+.rc-state {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.rc-state[data-state="pass"] { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.rc-state[data-state="fail"], .rc-state[data-state="timeout"], .rc-state[data-state="error"] {
+  color: var(--no); border-color: color-mix(in srgb, var(--no) 45%, transparent);
+}
+.rc-state[data-state="running"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.rc-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; margin-top: 6px; min-width: 0; }
+.rc-io { min-width: 0; }
+.rc-io span { display: block; font-size: 11px; color: var(--text-faint); margin-bottom: 2px; }
+.rc-io pre {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .22);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 140px;
+  overflow: auto;
+}
+.rc-actual pre { border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.rc-err {
+  grid-column: 1 / -1;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--no);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.run-out {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .22);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow: auto;
+}
+
 @media (max-width: 820px) {
   .ag-cards { grid-template-columns: 1fr; }
   .ap-input { min-height: 220px; font-size: 12.5px; }

@@ -209,6 +209,27 @@ manifest.dirs.forEach(meta => {
       else if (!Array.isArray(it.pitfalls) || it.pitfalls.length < 2) problems.push(it.id + ' 需要 2 条易错边界');
     });
     if (src.dir !== meta.key) problems.push('algo.json 的 dir 与清单不一致: ' + src.dir);
+
+    // 可运行框架与用例（可选文件；只有算法题才有）
+    const runsFile = path.join(CONTENT, meta.key, 'algo-runs.json');
+    if (fs.existsSync(runsFile)) {
+      const runs = readJson(runsFile);
+      const byId = new Map((src.items || []).map(it => [it.id, it]));
+      Object.keys(runs.items || {}).forEach(id => {
+        const r = runs.items[id];
+        const it = byId.get(id);
+        if (!it) { problems.push('algo-runs.json 里有不存在的题目：' + id); return; }
+        if (!r || typeof r.harness !== 'string' || r.harness.indexOf('int main') < 0) { problems.push(id + ' 的运行框架缺少 main'); return; }
+        if (r.harness.indexOf('TODO') < 0) problems.push(id + ' 的运行框架没有 TODO 标记');
+        if (!Array.isArray(r.tests) || r.tests.length < 2) { problems.push(id + ' 至少需要 2 条用例'); return; }
+        r.tests.forEach((t, i) => {
+          if (typeof t.input !== 'string') problems.push(id + ' 第 ' + (i + 1) + ' 条用例缺少 input');
+          if (typeof t.expect !== 'string' || !t.expect.length) problems.push(id + ' 第 ' + (i + 1) + ' 条用例缺少 expect');
+        });
+        if (!r.io || !r.io.input || !r.io.output) problems.push(id + ' 缺少输入/输出格式说明');
+        it.run = { io: r.io, harness: r.harness, tests: r.tests };
+      });
+    }
     if (problems.length) {
       failed = true;
       console.error(meta.key + '/algo.json 校验失败：');
@@ -216,6 +237,7 @@ manifest.dirs.forEach(meta => {
     } else {
       entry.counts.algo = src.items.length;
       entry.counts.algoTopics = src.topics.length;
+      entry.counts.algoRuns = src.items.filter(i => i.run).length;
       entry.algoTopics = src.topics.map(t => ({ key: t.key, name: t.name, count: src.items.filter(i => i.topic === t.key).length }));
       fs.writeFileSync(
         path.join(DIST_CONTENT, meta.key + '.algo.js'),

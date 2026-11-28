@@ -1,0 +1,419 @@
+{
+  "version": 1,
+  "note": "可运行框架与用例：只给算法题（lc-*）；手撕 C++ 与游戏小题不套 stdin/stdout。harness 里的 TODO 是空实现，能编译能运行但结果错，用例判失败而不是崩溃。",
+  "items": {
+    "lc-1": {
+      "io": {
+        "input": "第一行两个整数 n、target；第二行 n 个整数（空格分隔）",
+        "output": "两个下标（从小到大，空格分隔）；无解输出 -1 -1"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <unordered_map>\nusing namespace std;\n\n// TODO: 返回和为 target 的两个下标（从小到大）；没有答案返回 {-1,-1}\nvector<int> twoSum(vector<int>& nums, int target) {\n    return {-1, -1};   // 空实现：故意返回可判定的错误结果\n}\n\nint main() {\n    int n, target;\n    if (!(cin >> n >> target)) return 0;\n    vector<int> a(n);\n    for (int i = 0; i < n; ++i) cin >> a[i];\n    vector<int> ans = twoSum(a, target);\n    if (ans.size() < 2) { cout << \"-1 -1\" << endl; return 0; }\n    if (ans[0] > ans[1]) swap(ans[0], ans[1]);\n    cout << ans[0] << \" \" << ans[1] << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "4 9\n2 7 11 15\n", "expect": "0 1" },
+        { "name": "中间两数", "input": "3 6\n3 2 4\n", "expect": "1 2" },
+        { "name": "重复值", "input": "2 6\n3 3\n", "expect": "0 1" }
+      ]
+    },
+    "lc-15": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个整数",
+        "output": "每行一组三元组（组内升序、组间按字典序），无解输出 none"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <algorithm>\nusing namespace std;\n\n// TODO: 返回所有和为 0 且不重复的三元组（每组内部升序）\nvector<vector<int>> threeSum(vector<int>& a) {\n    return {};   // 空实现：返回空，所有用例都会判失败\n}\n\nint main() {\n    int n;\n    if (!(cin >> n)) return 0;\n    vector<int> a(n);\n    for (int i = 0; i < n; ++i) cin >> a[i];\n    vector<vector<int>> ans = threeSum(a);\n    if (ans.empty()) { cout << \"none\" << endl; return 0; }\n    for (auto& t : ans) cout << t[0] << \" \" << t[1] << \" \" << t[2] << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "6\n-1 0 1 2 -1 -4\n", "expect": "-1 -1 2\n-1 0 1" },
+        { "name": "全零", "input": "3\n0 0 0\n", "expect": "0 0 0" },
+        { "name": "无解", "input": "3\n1 2 3\n", "expect": "none" }
+      ]
+    },
+    "lc-11": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个高度",
+        "output": "最大蓄水量（整数）"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <algorithm>\nusing namespace std;\n\n// TODO: 返回两条线与 x 轴围成的最大蓄水量\nint maxArea(vector<int>& h) {\n    return 0;   // 空实现：返回 0，用例会判失败\n}\n\nint main() {\n    int n;\n    if (!(cin >> n)) return 0;\n    vector<int> h(n);\n    for (int i = 0; i < n; ++i) cin >> h[i];\n    cout << maxArea(h) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "9\n1 8 6 2 5 4 8 3 7\n", "expect": "49" },
+        { "name": "两根线", "input": "2\n1 1\n", "expect": "1" },
+        { "name": "两端最高", "input": "5\n4 3 2 1 4\n", "expect": "16" }
+      ]
+    },
+    "lc-283": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个整数",
+        "output": "移动零后的数组（空格分隔）"
+      },
+      "harness": "#include <iostream>\n#include <vector>\nusing namespace std;\n\n// TODO: 原地把所有 0 移到末尾，非零元素保持相对顺序\nvoid moveZeroes(vector<int>& a) {\n    // 空实现：什么都不做，用例会判失败\n}\n\nint main() {\n    int n;\n    if (!(cin >> n)) return 0;\n    vector<int> a(n);\n    for (int i = 0; i < n; ++i) cin >> a[i];\n    moveZeroes(a);\n    for (int i = 0; i < n; ++i) cout << a[i] << (i + 1 == n ? \"\" : \" \");\n    cout << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "5\n0 1 0 3 12\n", "expect": "1 3 12 0 0" },
+        { "name": "只有一个零", "input": "1\n0\n", "expect": "0" },
+        { "name": "无零", "input": "2\n1 2\n", "expect": "1 2" }
+      ]
+    },
+    "lc-88": {
+      "io": {
+        "input": "第一行 m n；第二行 m 个 nums1 元素；第三行 n 个 nums2 元素",
+        "output": "合并后的数组（长度 m+n，空格分隔）"
+      },
+      "harness": "#include <iostream>\n#include <vector>\nusing namespace std;\n\n// TODO: 把有序数组 b 合并进 a 的前 m 个位置（a 已预留 m+n 空间）\nvoid merge(vector<int>& a, int m, vector<int>& b, int n) {\n    // 空实现：什么都不做，用例会判失败\n}\n\nint main() {\n    int m, n;\n    if (!(cin >> m >> n)) return 0;\n    vector<int> a(m + n, 0), b(n);\n    for (int i = 0; i < m; ++i) cin >> a[i];\n    for (int i = 0; i < n; ++i) cin >> b[i];\n    merge(a, m, b, n);\n    for (int i = 0; i < m + n; ++i) cout << a[i] << (i + 1 == m + n ? \"\" : \" \");\n    cout << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "3 3\n1 2 3\n2 5 6\n", "expect": "1 2 2 3 5 6" },
+        { "name": "nums2 为空", "input": "1 0\n1\n\n", "expect": "1" },
+        { "name": "nums1 为空", "input": "0 1\n\n1\n", "expect": "1" }
+      ]
+    },
+    "lc-3": {
+      "io": {
+        "input": "一行字符串（可能为空行）",
+        "output": "最长无重复字符子串的长度"
+      },
+      "harness": "#include <iostream>\n#include <string>\n#include <vector>\n#include <algorithm>\nusing namespace std;\n\n// TODO: 返回不含重复字符的最长连续子串长度\nint lengthOfLongestSubstring(string s) {\n    return 0;   // 空实现：返回 0，用例会判失败\n}\n\nint main() {\n    string s;\n    getline(cin, s);\n    cout << lengthOfLongestSubstring(s) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "abcabcbb\n", "expect": "3" },
+        { "name": "全相同", "input": "bbbbb\n", "expect": "1" },
+        { "name": "跨段重复", "input": "pwwkew\n", "expect": "3" },
+        { "name": "空串", "input": "\n", "expect": "0" }
+      ]
+    },
+    "lc-5": {
+      "io": {
+        "input": "一行字符串",
+        "output": "最长回文子串（多个时取最先出现的）"
+      },
+      "harness": "#include <iostream>\n#include <string>\nusing namespace std;\n\n// TODO: 返回最长的回文子串；空串返回空串\nstring longestPalindrome(string s) {\n    return \"\";   // 空实现：返回空串，用例会判失败\n}\n\nint main() {\n    string s;\n    getline(cin, s);\n    cout << longestPalindrome(s) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "babad\n", "expect": "bab" },
+        { "name": "偶数长度", "input": "cbbd\n", "expect": "bb" },
+        { "name": "单字符", "input": "a\n", "expect": "a" }
+      ]
+    },
+    "lc-415": {
+      "io": {
+        "input": "第一行字符串 a；第二行字符串 b（非负整数）",
+        "output": "两数之和的字符串"
+      },
+      "harness": "#include <iostream>\n#include <string>\n#include <algorithm>\nusing namespace std;\n\n// TODO: 返回两个非负整数字符串相加的结果\nstring addStrings(string a, string b) {\n    return \"0\";   // 空实现：返回 \"0\"，用例会判失败\n}\n\nint main() {\n    string a, b;\n    getline(cin, a);\n    getline(cin, b);\n    cout << addStrings(a, b) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "11\n123\n", "expect": "134" },
+        { "name": "零加零", "input": "0\n0\n", "expect": "0" },
+        { "name": "进位溢出边界", "input": "999\n1\n", "expect": "1000" }
+      ]
+    },
+    "lc-14": {
+      "io": {
+        "input": "第一行整数 n；接下来 n 行，每行一个字符串",
+        "output": "最长公共前缀；没有则输出 none"
+      },
+      "harness": "#include <iostream>\n#include <string>\n#include <vector>\nusing namespace std;\n\n// TODO: 返回所有字符串的最长公共前缀；没有返回空串\nstring longestCommonPrefix(vector<string>& v) {\n    return \"\";   // 空实现：返回空串，用例会判失败\n}\n\nint main() {\n    int n;\n    if (!(cin >> n)) return 0;\n    cin.ignore();\n    vector<string> v(n);\n    for (int i = 0; i < n; ++i) getline(cin, v[i]);\n    string p = longestCommonPrefix(v);\n    cout << (p.empty() ? \"none\" : p) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "3\nflower\nflow\nflight\n", "expect": "fl" },
+        { "name": "无公共前缀", "input": "3\ndog\nracecar\ncar\n", "expect": "none" },
+        { "name": "单个字符串", "input": "1\nabc\n", "expect": "abc" }
+      ]
+    },
+    "lc-206": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个整数（n=0 表示空链表）",
+        "output": "反转后的链表（空格分隔）；空链表输出 none"
+      },
+      "harness": "#include <iostream>\nusing namespace std;\n\nstruct ListNode {\n    int val;\n    ListNode* next;\n    explicit ListNode(int v) : val(v), next(nullptr) {}\n};\n\n// TODO: 返回反转后的头结点\nListNode* reverseList(ListNode* head) {\n    return head;   // 空实现：原样返回，用例会判失败\n}\n\nint main() {\n    int n;\n    if (!(cin >> n)) return 0;\n    ListNode* head = nullptr;\n    ListNode** tail = &head;\n    for (int i = 0; i < n; ++i) { int v; cin >> v; *tail = new ListNode(v); tail = &(*tail)->next; }\n    head = reverseList(head);\n    if (!head) { cout << \"none\" << endl; return 0; }\n    for (ListNode* p = head; p; p = p->next) cout << p->val << (p->next ? \" \" : \"\");\n    cout << endl;\n    while (head) { ListNode* n2 = head->next; delete head; head = n2; }\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "5\n1 2 3 4 5\n", "expect": "5 4 3 2 1" },
+        { "name": "单结点", "input": "1\n7\n", "expect": "7" },
+        { "name": "空链表", "input": "0\n\n", "expect": "none" }
+      ]
+    },
+    "lc-21": {
+      "io": {
+        "input": "第一行 n 加 n 个数；第二行 m 加 m 个数（各自升序，0 表示空链表）",
+        "output": "合并后的链表（空格分隔）；都空输出 none"
+      },
+      "harness": "#include <iostream>\nusing namespace std;\n\nstruct ListNode {\n    int val;\n    ListNode* next;\n    explicit ListNode(int v) : val(v), next(nullptr) {}\n};\n\n// TODO: 合并两个升序链表，返回新头结点\nListNode* mergeTwoLists(ListNode* a, ListNode* b) {\n    return a ? a : b;   // 空实现：只接了一段，用例会判失败\n}\n\nListNode* readList() {\n    int n; cin >> n;\n    ListNode* head = nullptr; ListNode** tail = &head;\n    for (int i = 0; i < n; ++i) { int v; cin >> v; *tail = new ListNode(v); tail = &(*tail)->next; }\n    return head;\n}\n\nint main() {\n    ListNode* a = readList();\n    ListNode* b = readList();\n    ListNode* h = mergeTwoLists(a, b);\n    if (!h) { cout << \"none\" << endl; return 0; }\n    for (ListNode* p = h; p; p = p->next) cout << p->val << (p->next ? \" \" : \"\");\n    cout << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "3 1 2 4\n3 1 3 4\n", "expect": "1 1 2 3 4 4" },
+        { "name": "一段为空", "input": "0\n2 5 9\n", "expect": "5 9" },
+        { "name": "都为空", "input": "0\n0\n", "expect": "none" }
+      ]
+    },
+    "lc-141": {
+      "io": {
+        "input": "第一行 n k（k 是入环下标，-1 表示无环）；第二行 n 个整数",
+        "output": "true 或 false"
+      },
+      "harness": "#include <iostream>\n#include <vector>\nusing namespace std;\n\nstruct ListNode {\n    int val;\n    ListNode* next;\n    explicit ListNode(int v) : val(v), next(nullptr) {}\n};\n\n// TODO: 判断链表是否有环\nbool hasCycle(ListNode* head) {\n    return false;   // 空实现：永远无环，有环用例会判失败\n}\n\nint main() {\n    int n, k;\n    if (!(cin >> n >> k)) return 0;\n    vector<ListNode*> nodes(n);\n    for (int i = 0; i < n; ++i) { int v; cin >> v; nodes[i] = new ListNode(v); }\n    for (int i = 0; i + 1 < n; ++i) nodes[i]->next = nodes[i + 1];\n    if (k >= 0 && k < n) nodes[n - 1]->next = nodes[k];\n    cout << (hasCycle(n ? nodes[0] : nullptr) ? \"true\" : \"false\") << endl;\n    if (k < 0) for (int i = 0; i < n; ++i) delete nodes[i];\n    return 0;\n}",
+      "tests": [
+        { "name": "有环", "input": "4 1\n3 2 0 -4\n", "expect": "true" },
+        { "name": "无环", "input": "3 -1\n1 2 3\n", "expect": "false" },
+        { "name": "自环", "input": "1 0\n1\n", "expect": "true" }
+      ]
+    },
+    "lc-143": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个整数",
+        "output": "重排后的链表（空格分隔）"
+      },
+      "harness": "#include <iostream>\nusing namespace std;\n\nstruct ListNode {\n    int val;\n    ListNode* next;\n    explicit ListNode(int v) : val(v), next(nullptr) {}\n};\n\n// TODO: 原地重排为 L0 → Ln → L1 → Ln-1 → …\nvoid reorderList(ListNode* head) {\n    // 空实现：不重排，用例会判失败\n}\n\nint main() {\n    int n;\n    if (!(cin >> n)) return 0;\n    ListNode* head = nullptr; ListNode** tail = &head;\n    for (int i = 0; i < n; ++i) { int v; cin >> v; *tail = new ListNode(v); tail = &(*tail)->next; }\n    reorderList(head);\n    for (ListNode* p = head; p; p = p->next) cout << p->val << (p->next ? \" \" : \"\");\n    cout << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "偶数个", "input": "4\n1 2 3 4\n", "expect": "1 4 2 3" },
+        { "name": "奇数个", "input": "5\n1 2 3 4 5\n", "expect": "1 5 2 4 3" },
+        { "name": "单结点", "input": "1\n1\n", "expect": "1" }
+      ]
+    },
+    "lc-146": {
+      "io": {
+        "input": "第一行容量 cap 与操作数 m；随后 m 行，每行 put k v 或 get k",
+        "output": "每个 get 的结果各占一行"
+      },
+      "harness": "#include <iostream>\n#include <string>\nusing namespace std;\n\nclass LRUCache {\npublic:\n    explicit LRUCache(int capacity) {\n        // TODO: 保存容量，初始化哈希表 + 双向链表\n    }\n\n    // TODO: 命中返回值并刷新为最近使用；未命中返回 -1\n    int get(int key) {\n        return -1;   // 空实现：全部未命中，用例会判失败\n    }\n\n    // TODO: 写入 / 更新；超容量淘汰最久未使用\n    void put(int key, int value) {\n        // 空实现\n    }\n};\n\nint main() {\n    int cap, m;\n    if (!(cin >> cap >> m)) return 0;\n    LRUCache cache(cap);\n    for (int i = 0; i < m; ++i) {\n        string op; cin >> op;\n        if (op == \"put\") { int k, v; cin >> k >> v; cache.put(k, v); }\n        else { int k; cin >> k; cout << cache.get(k) << endl; }\n    }\n    return 0;\n}",
+      "tests": [
+        {
+          "name": "经典淘汰",
+          "input": "2 9\nput 1 1\nput 2 2\nget 1\nput 3 3\nget 2\nput 4 4\nget 1\nget 3\nget 4\n",
+          "expect": "1\n-1\n-1\n3\n4"
+        },
+        { "name": "容量 1", "input": "1 4\nput 1 10\nput 2 20\nget 1\nget 2\n", "expect": "-1\n20" },
+        { "name": "更新已有键", "input": "2 4\nput 1 1\nget 1\nput 1 5\nget 1\n", "expect": "1\n5" }
+      ]
+    },
+    "lc-20": {
+      "io": {
+        "input": "一行只含 ()[]{} 的字符串",
+        "output": "true 或 false"
+      },
+      "harness": "#include <iostream>\n#include <string>\nusing namespace std;\n\n// TODO: 判断括号是否合法配对\nbool isValid(string s) {\n    return false;   // 空实现：永远 false，合法用例会判失败\n}\n\nint main() {\n    string s;\n    getline(cin, s);\n    cout << (isValid(s) ? \"true\" : \"false\") << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "()[]{}\n", "expect": "true" },
+        { "name": "顺序错误", "input": "(]\n", "expect": "false" },
+        { "name": "左括号多余", "input": "(\n", "expect": "false" }
+      ]
+    },
+    "lc-155": {
+      "io": {
+        "input": "第一行操作数 m；随后 m 行 push x / pop / top / getMin",
+        "output": "每次 top 和 getMin 的结果各占一行"
+      },
+      "harness": "#include <iostream>\n#include <string>\nusing namespace std;\n\nclass MinStack {\npublic:\n    // TODO: push 时同步维护当前最小值\n    void push(int x) {\n        // 空实现\n    }\n    // TODO: 弹出栈顶\n    void pop() {\n        // 空实现\n    }\n    // TODO: 返回栈顶；空栈返回 -1\n    int top() {\n        return -1;   // 空实现\n    }\n    // TODO: 返回当前最小值；空栈返回 -1\n    int getMin() {\n        return -1;   // 空实现\n    }\n};\n\nint main() {\n    int m;\n    if (!(cin >> m)) return 0;\n    MinStack st;\n    for (int i = 0; i < m; ++i) {\n        string op; cin >> op;\n        if (op == \"push\") { int x; cin >> x; st.push(x); }\n        else if (op == \"pop\") st.pop();\n        else if (op == \"top\") cout << st.top() << endl;\n        else cout << st.getMin() << endl;\n    }\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "7\npush -2\npush 0\npush -3\ngetMin\npop\ntop\ngetMin\n", "expect": "-3\n0\n-2" },
+        { "name": "单元素", "input": "3\npush 5\ntop\ngetMin\n", "expect": "5\n5" },
+        { "name": "重复最小值", "input": "5\npush 1\npush 1\npop\ngetMin\ntop\n", "expect": "1\n1" }
+      ]
+    },
+    "lc-232": {
+      "io": {
+        "input": "第一行操作数 m；随后 m 行 push x / pop / peek / empty",
+        "output": "每次 pop、peek 的结果与 empty 的 1/0 各占一行"
+      },
+      "harness": "#include <iostream>\n#include <string>\nusing namespace std;\n\nclass MyQueue {\npublic:\n    // TODO: 入队\n    void push(int x) {\n        // 空实现\n    }\n    // TODO: 出队并返回队首；空队列返回 -1\n    int pop() {\n        return -1;   // 空实现\n    }\n    // TODO: 返回队首；空队列返回 -1\n    int peek() {\n        return -1;   // 空实现\n    }\n    // TODO: 是否为空\n    bool empty() {\n        return true;   // 空实现\n    }\n};\n\nint main() {\n    int m;\n    if (!(cin >> m)) return 0;\n    MyQueue q;\n    for (int i = 0; i < m; ++i) {\n        string op; cin >> op;\n        if (op == \"push\") { int x; cin >> x; q.push(x); }\n        else if (op == \"pop\") cout << q.pop() << endl;\n        else if (op == \"peek\") cout << q.peek() << endl;\n        else cout << (q.empty() ? 1 : 0) << endl;\n    }\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "7\npush 1\npush 2\npeek\npop\nempty\npop\nempty\n", "expect": "1\n1\n0\n2\n1" },
+        { "name": "交错出入", "input": "5\npush 1\npop\npush 2\npeek\nempty\n", "expect": "1\n2\n0" },
+        { "name": "空队列", "input": "2\nempty\npeek\n", "expect": "1\n-1" }
+      ]
+    },
+    "lc-239": {
+      "io": {
+        "input": "第一行 n k；第二行 n 个整数",
+        "output": "每个窗口的最大值（空格分隔）"
+      },
+      "harness": "#include <iostream>\n#include <vector>\nusing namespace std;\n\n// TODO: 返回每个长度为 k 的窗口的最大值\nvector<int> maxSlidingWindow(vector<int>& a, int k) {\n    return {};   // 空实现：返回空，用例会判失败\n}\n\nint main() {\n    int n, k;\n    if (!(cin >> n >> k)) return 0;\n    vector<int> a(n);\n    for (int i = 0; i < n; ++i) cin >> a[i];\n    vector<int> ans = maxSlidingWindow(a, k);\n    for (size_t i = 0; i < ans.size(); ++i) cout << ans[i] << (i + 1 == ans.size() ? \"\" : \" \");\n    cout << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "8 3\n1 3 -1 -3 5 3 6 7\n", "expect": "3 3 5 5 6 7" },
+        { "name": "k 等于 n", "input": "3 3\n4 2 9\n", "expect": "9" },
+        { "name": "单元素窗口", "input": "3 1\n1 -1 2\n", "expect": "1 -1 2" }
+      ]
+    },
+    "lc-94": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个层序值，# 表示空结点（0 表示空树）",
+        "output": "中序遍历序列（空格分隔）；空树输出 none"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <string>\n#include <queue>\nusing namespace std;\n\nstruct TreeNode {\n    int val;\n    TreeNode* left;\n    TreeNode* right;\n    explicit TreeNode(int v) : val(v), left(nullptr), right(nullptr) {}\n};\n\nTreeNode* buildTree() {\n    int n; if (!(cin >> n) || n == 0) return nullptr;\n    vector<string> s(n);\n    for (int i = 0; i < n; ++i) cin >> s[i];\n    TreeNode* root = new TreeNode(stoi(s[0]));\n    queue<TreeNode*> q; q.push(root);\n    int i = 1;\n    while (!q.empty() && i < n) {\n        TreeNode* cur = q.front(); q.pop();\n        if (i < n && s[i] != \"#\") { cur->left = new TreeNode(stoi(s[i])); q.push(cur->left); } ++i;\n        if (i < n && s[i] != \"#\") { cur->right = new TreeNode(stoi(s[i])); q.push(cur->right); } ++i;\n    }\n    return root;\n}\n\n// TODO: 返回中序遍历（左 → 根 → 右）\nvector<int> inorderTraversal(TreeNode* root) {\n    return {};   // 空实现：返回空，用例会判失败\n}\n\nint main() {\n    TreeNode* root = buildTree();\n    vector<int> ans = inorderTraversal(root);\n    if (ans.empty()) { cout << \"none\" << endl; return 0; }\n    for (size_t i = 0; i < ans.size(); ++i) cout << ans[i] << (i + 1 == ans.size() ? \"\" : \" \");\n    cout << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "3\n2 1 3\n", "expect": "1 2 3" },
+        { "name": "右斜树", "input": "4\n1 # 2 3\n", "expect": "1 3 2" },
+        { "name": "空树", "input": "0\n", "expect": "none" }
+      ]
+    },
+    "lc-144": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个层序值，# 表示空结点（0 表示空树）",
+        "output": "前序遍历序列（空格分隔）；空树输出 none"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <string>\n#include <queue>\nusing namespace std;\n\nstruct TreeNode {\n    int val;\n    TreeNode* left;\n    TreeNode* right;\n    explicit TreeNode(int v) : val(v), left(nullptr), right(nullptr) {}\n};\n\nTreeNode* buildTree() {\n    int n; if (!(cin >> n) || n == 0) return nullptr;\n    vector<string> s(n);\n    for (int i = 0; i < n; ++i) cin >> s[i];\n    TreeNode* root = new TreeNode(stoi(s[0]));\n    queue<TreeNode*> q; q.push(root);\n    int i = 1;\n    while (!q.empty() && i < n) {\n        TreeNode* cur = q.front(); q.pop();\n        if (i < n && s[i] != \"#\") { cur->left = new TreeNode(stoi(s[i])); q.push(cur->left); } ++i;\n        if (i < n && s[i] != \"#\") { cur->right = new TreeNode(stoi(s[i])); q.push(cur->right); } ++i;\n    }\n    return root;\n}\n\n// TODO: 返回前序遍历（根 → 左 → 右）\nvector<int> preorderTraversal(TreeNode* root) {\n    return {};   // 空实现：返回空，用例会判失败\n}\n\nint main() {\n    TreeNode* root = buildTree();\n    vector<int> ans = preorderTraversal(root);\n    if (ans.empty()) { cout << \"none\" << endl; return 0; }\n    for (size_t i = 0; i < ans.size(); ++i) cout << ans[i] << (i + 1 == ans.size() ? \"\" : \" \");\n    cout << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "3\n2 1 3\n", "expect": "2 1 3" },
+        { "name": "右斜树", "input": "4\n1 # 2 3\n", "expect": "1 2 3" },
+        { "name": "空树", "input": "0\n", "expect": "none" }
+      ]
+    },
+    "lc-145": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个层序值，# 表示空结点（0 表示空树）",
+        "output": "后序遍历序列（空格分隔）；空树输出 none"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <string>\n#include <queue>\nusing namespace std;\n\nstruct TreeNode {\n    int val;\n    TreeNode* left;\n    TreeNode* right;\n    explicit TreeNode(int v) : val(v), left(nullptr), right(nullptr) {}\n};\n\nTreeNode* buildTree() {\n    int n; if (!(cin >> n) || n == 0) return nullptr;\n    vector<string> s(n);\n    for (int i = 0; i < n; ++i) cin >> s[i];\n    TreeNode* root = new TreeNode(stoi(s[0]));\n    queue<TreeNode*> q; q.push(root);\n    int i = 1;\n    while (!q.empty() && i < n) {\n        TreeNode* cur = q.front(); q.pop();\n        if (i < n && s[i] != \"#\") { cur->left = new TreeNode(stoi(s[i])); q.push(cur->left); } ++i;\n        if (i < n && s[i] != \"#\") { cur->right = new TreeNode(stoi(s[i])); q.push(cur->right); } ++i;\n    }\n    return root;\n}\n\n// TODO: 返回后序遍历（左 → 右 → 根）\nvector<int> postorderTraversal(TreeNode* root) {\n    return {};   // 空实现：返回空，用例会判失败\n}\n\nint main() {\n    TreeNode* root = buildTree();\n    vector<int> ans = postorderTraversal(root);\n    if (ans.empty()) { cout << \"none\" << endl; return 0; }\n    for (size_t i = 0; i < ans.size(); ++i) cout << ans[i] << (i + 1 == ans.size() ? \"\" : \" \");\n    cout << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "3\n2 1 3\n", "expect": "1 3 2" },
+        { "name": "右斜树", "input": "4\n1 # 2 3\n", "expect": "3 2 1" },
+        { "name": "空树", "input": "0\n", "expect": "none" }
+      ]
+    },
+    "lc-104": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个层序值，# 表示空结点（0 表示空树）",
+        "output": "最大深度（空树为 0）"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <string>\n#include <queue>\nusing namespace std;\n\nstruct TreeNode {\n    int val;\n    TreeNode* left;\n    TreeNode* right;\n    explicit TreeNode(int v) : val(v), left(nullptr), right(nullptr) {}\n};\n\nTreeNode* buildTree() {\n    int n; if (!(cin >> n) || n == 0) return nullptr;\n    vector<string> s(n);\n    for (int i = 0; i < n; ++i) cin >> s[i];\n    TreeNode* root = new TreeNode(stoi(s[0]));\n    queue<TreeNode*> q; q.push(root);\n    int i = 1;\n    while (!q.empty() && i < n) {\n        TreeNode* cur = q.front(); q.pop();\n        if (i < n && s[i] != \"#\") { cur->left = new TreeNode(stoi(s[i])); q.push(cur->left); } ++i;\n        if (i < n && s[i] != \"#\") { cur->right = new TreeNode(stoi(s[i])); q.push(cur->right); } ++i;\n    }\n    return root;\n}\n\n// TODO: 返回二叉树最大深度（根到最远叶子的结点数）\nint maxDepth(TreeNode* root) {\n    return 0;   // 空实现：返回 0，用例会判失败\n}\n\nint main() {\n    cout << maxDepth(buildTree()) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "三层树", "input": "7\n3 9 20 # # 15 7\n", "expect": "3" },
+        { "name": "单结点", "input": "1\n1\n", "expect": "1" },
+        { "name": "空树", "input": "0\n", "expect": "0" }
+      ]
+    },
+    "lc-226": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个层序值，# 表示空结点（0 表示空树）",
+        "output": "翻转后的层序序列（含必要的 # 占位，去掉尾部 #）；空树输出 none"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <string>\n#include <queue>\nusing namespace std;\n\nstruct TreeNode {\n    int val;\n    TreeNode* left;\n    TreeNode* right;\n    explicit TreeNode(int v) : val(v), left(nullptr), right(nullptr) {}\n};\n\nTreeNode* buildTree() {\n    int n; if (!(cin >> n) || n == 0) return nullptr;\n    vector<string> s(n);\n    for (int i = 0; i < n; ++i) cin >> s[i];\n    TreeNode* root = new TreeNode(stoi(s[0]));\n    queue<TreeNode*> q; q.push(root);\n    int i = 1;\n    while (!q.empty() && i < n) {\n        TreeNode* cur = q.front(); q.pop();\n        if (i < n && s[i] != \"#\") { cur->left = new TreeNode(stoi(s[i])); q.push(cur->left); } ++i;\n        if (i < n && s[i] != \"#\") { cur->right = new TreeNode(stoi(s[i])); q.push(cur->right); } ++i;\n    }\n    return root;\n}\n\nvoid printLevel(TreeNode* root) {\n    if (!root) { cout << \"none\" << endl; return; }\n    vector<string> out;\n    queue<TreeNode*> q; q.push(root);\n    while (!q.empty()) {\n        TreeNode* n = q.front(); q.pop();\n        if (!n) { out.push_back(\"#\"); continue; }\n        out.push_back(to_string(n->val));\n        q.push(n->left); q.push(n->right);\n    }\n    while (!out.empty() && out.back() == \"#\") out.pop_back();\n    for (size_t i = 0; i < out.size(); ++i) cout << out[i] << (i + 1 == out.size() ? \"\" : \" \");\n    cout << endl;\n}\n\n// TODO: 交换每个结点的左右子树，返回根\nTreeNode* invertTree(TreeNode* root) {\n    return root;   // 空实现：原样返回，用例会判失败\n}\n\nint main() {\n    printLevel(invertTree(buildTree()));\n    return 0;\n}",
+      "tests": [
+        { "name": "满层树", "input": "7\n4 2 7 1 3 6 9\n", "expect": "4 7 2 9 6 3 1" },
+        { "name": "只有左孩子", "input": "2\n1 2\n", "expect": "1 # 2" },
+        { "name": "空树", "input": "0\n", "expect": "none" }
+      ]
+    },
+    "lc-102": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个层序值，# 表示空结点（0 表示空树）",
+        "output": "每层一行（层内空格分隔）；空树输出 none"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <string>\n#include <queue>\nusing namespace std;\n\nstruct TreeNode {\n    int val;\n    TreeNode* left;\n    TreeNode* right;\n    explicit TreeNode(int v) : val(v), left(nullptr), right(nullptr) {}\n};\n\nTreeNode* buildTree() {\n    int n; if (!(cin >> n) || n == 0) return nullptr;\n    vector<string> s(n);\n    for (int i = 0; i < n; ++i) cin >> s[i];\n    TreeNode* root = new TreeNode(stoi(s[0]));\n    queue<TreeNode*> q; q.push(root);\n    int i = 1;\n    while (!q.empty() && i < n) {\n        TreeNode* cur = q.front(); q.pop();\n        if (i < n && s[i] != \"#\") { cur->left = new TreeNode(stoi(s[i])); q.push(cur->left); } ++i;\n        if (i < n && s[i] != \"#\") { cur->right = new TreeNode(stoi(s[i])); q.push(cur->right); } ++i;\n    }\n    return root;\n}\n\n// TODO: 返回层序遍历结果，每层一个数组\nvector<vector<int>> levelOrder(TreeNode* root) {\n    return {};   // 空实现：返回空，用例会判失败\n}\n\nint main() {\n    vector<vector<int>> ans = levelOrder(buildTree());\n    if (ans.empty()) { cout << \"none\" << endl; return 0; }\n    for (auto& row : ans) {\n        for (size_t i = 0; i < row.size(); ++i) cout << row[i] << (i + 1 == row.size() ? \"\" : \" \");\n        cout << endl;\n    }\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "7\n3 9 20 # # 15 7\n", "expect": "3\n9 20\n15 7" },
+        { "name": "单结点", "input": "1\n1\n", "expect": "1" },
+        { "name": "空树", "input": "0\n", "expect": "none" }
+      ]
+    },
+    "lc-236": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个层序值（# 为空，值唯一）；第三行 p q",
+        "output": "最近公共祖先的值"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <string>\n#include <queue>\nusing namespace std;\n\nstruct TreeNode {\n    int val;\n    TreeNode* left;\n    TreeNode* right;\n    explicit TreeNode(int v) : val(v), left(nullptr), right(nullptr) {}\n};\n\nTreeNode* buildTree() {\n    int n; if (!(cin >> n) || n == 0) return nullptr;\n    vector<string> s(n);\n    for (int i = 0; i < n; ++i) cin >> s[i];\n    TreeNode* root = new TreeNode(stoi(s[0]));\n    queue<TreeNode*> q; q.push(root);\n    int i = 1;\n    while (!q.empty() && i < n) {\n        TreeNode* cur = q.front(); q.pop();\n        if (i < n && s[i] != \"#\") { cur->left = new TreeNode(stoi(s[i])); q.push(cur->left); } ++i;\n        if (i < n && s[i] != \"#\") { cur->right = new TreeNode(stoi(s[i])); q.push(cur->right); } ++i;\n    }\n    return root;\n}\n\nTreeNode* findNode(TreeNode* r, int v) {\n    if (!r) return nullptr;\n    if (r->val == v) return r;\n    TreeNode* l = findNode(r->left, v);\n    return l ? l : findNode(r->right, v);\n}\n\n// TODO: 返回 p、q 的最近公共祖先\nTreeNode* lowestCommonAncestor(TreeNode* root, TreeNode* p, TreeNode* q) {\n    return root;   // 空实现：永远返回根，用例会判失败\n}\n\nint main() {\n    TreeNode* root = buildTree();\n    int a, b;\n    if (!(cin >> a >> b)) return 0;\n    TreeNode* r = lowestCommonAncestor(root, findNode(root, a), findNode(root, b));\n    cout << (r ? r->val : -1) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "跨子树", "input": "7\n3 5 1 6 2 0 8\n5 1\n", "expect": "3" },
+        { "name": "祖先即答案", "input": "3\n3 5 1\n5 6\n", "expect": "5" },
+        { "name": "两个相同结点", "input": "2\n1 2\n2 2\n", "expect": "2" }
+      ]
+    },
+    "lc-912": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个整数",
+        "output": "升序数组（空格分隔）"
+      },
+      "harness": "#include <iostream>\n#include <vector>\nusing namespace std;\n\n// TODO: 手写排序（快排 / 归并），不许调用库排序\nvoid sortArray(vector<int>& a) {\n    // 空实现：不排序，用例会判失败\n}\n\nint main() {\n    int n;\n    if (!(cin >> n)) return 0;\n    vector<int> a(n);\n    for (int i = 0; i < n; ++i) cin >> a[i];\n    sortArray(a);\n    for (int i = 0; i < n; ++i) cout << a[i] << (i + 1 == n ? \"\" : \" \");\n    cout << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "4\n5 2 3 1\n", "expect": "1 2 3 5" },
+        { "name": "单元素", "input": "1\n1\n", "expect": "1" },
+        { "name": "有重复", "input": "3\n3 3 1\n", "expect": "1 3 3" }
+      ]
+    },
+    "lc-215": {
+      "io": {
+        "input": "第一行 n k；第二行 n 个整数",
+        "output": "第 k 大的元素"
+      },
+      "harness": "#include <iostream>\n#include <vector>\nusing namespace std;\n\n// TODO: 返回数组中第 k 大的元素（1 ≤ k ≤ n）\nint findKthLargest(vector<int>& a, int k) {\n    return 0;   // 空实现：返回 0，用例会判失败\n}\n\nint main() {\n    int n, k;\n    if (!(cin >> n >> k)) return 0;\n    vector<int> a(n);\n    for (int i = 0; i < n; ++i) cin >> a[i];\n    cout << findKthLargest(a, k) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "6 2\n3 2 1 5 6 4\n", "expect": "5" },
+        { "name": "单元素", "input": "1 1\n1\n", "expect": "1" },
+        { "name": "有重复", "input": "5 3\n3 2 3 1 2\n", "expect": "2" }
+      ]
+    },
+    "lc-704": {
+      "io": {
+        "input": "第一行 n target；第二行 n 个升序整数",
+        "output": "目标下标；不存在输出 -1"
+      },
+      "harness": "#include <iostream>\n#include <vector>\nusing namespace std;\n\n// TODO: 二分查找目标值的下标，找不到返回 -1\nint search(vector<int>& a, int target) {\n    return -1;   // 空实现：永远找不到，用例会判失败\n}\n\nint main() {\n    int n, target;\n    if (!(cin >> n >> target)) return 0;\n    vector<int> a(n);\n    for (int i = 0; i < n; ++i) cin >> a[i];\n    cout << search(a, target) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "6 9\n-1 0 3 5 9 12\n", "expect": "4" },
+        { "name": "不存在", "input": "6 2\n-1 0 3 5 9 12\n", "expect": "-1" },
+        { "name": "单元素命中", "input": "1 1\n1\n", "expect": "0" }
+      ]
+    },
+    "lc-33": {
+      "io": {
+        "input": "第一行 n target；第二行 n 个旋转后的升序整数",
+        "output": "目标下标；不存在输出 -1"
+      },
+      "harness": "#include <iostream>\n#include <vector>\nusing namespace std;\n\n// TODO: 在旋转排序数组里 O(log n) 查找，找不到返回 -1\nint search(vector<int>& a, int target) {\n    return -1;   // 空实现：永远找不到，用例会判失败\n}\n\nint main() {\n    int n, target;\n    if (!(cin >> n >> target)) return 0;\n    vector<int> a(n);\n    for (int i = 0; i < n; ++i) cin >> a[i];\n    cout << search(a, target) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "7 0\n4 5 6 7 0 1 2\n", "expect": "4" },
+        { "name": "不存在", "input": "7 3\n4 5 6 7 0 1 2\n", "expect": "-1" },
+        { "name": "单元素", "input": "1 1\n1\n", "expect": "0" }
+      ]
+    },
+    "lc-200": {
+      "io": {
+        "input": "第一行 n m；接下来 n 行，每行 m 个 0/1 字符（无空格）",
+        "output": "岛屿数量"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <string>\nusing namespace std;\n\n// TODO: 返回四连通陆地岛屿的数量\nint numIslands(vector<vector<char>>& g) {\n    return 0;   // 空实现：返回 0，用例会判失败\n}\n\nint main() {\n    int n, m;\n    if (!(cin >> n >> m)) return 0;\n    vector<vector<char>> g(n, vector<char>(m));\n    for (int i = 0; i < n; ++i) { string row; cin >> row; for (int j = 0; j < m; ++j) g[i][j] = row[j]; }\n    cout << numIslands(g) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "4 5\n11110\n11010\n11000\n00000\n", "expect": "1" },
+        { "name": "两块陆地", "input": "3 3\n110\n010\n001\n", "expect": "2" },
+        { "name": "全水", "input": "1 1\n0\n", "expect": "0" }
+      ]
+    },
+    "lc-994": {
+      "io": {
+        "input": "第一行 n m；接下来 n 行，每行 m 个 0/1/2（无空格）",
+        "output": "全部腐烂所需分钟数；不可能则 -1"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <string>\nusing namespace std;\n\n// TODO: 多源 BFS 求全部腐烂所需分钟数，不可能返回 -1\nint orangesRotting(vector<vector<int>>& g) {\n    return 0;   // 空实现：返回 0，用例会判失败\n}\n\nint main() {\n    int n, m;\n    if (!(cin >> n >> m)) return 0;\n    vector<vector<int>> g(n, vector<int>(m));\n    for (int i = 0; i < n; ++i) { string row; cin >> row; for (int j = 0; j < m; ++j) g[i][j] = row[j] - '0'; }\n    cout << orangesRotting(g) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "3 3\n211\n110\n011\n", "expect": "4" },
+        { "name": "有孤立新鲜橘子", "input": "3 3\n211\n011\n101\n", "expect": "-1" },
+        { "name": "没有橘子", "input": "1 1\n0\n", "expect": "0" }
+      ]
+    },
+    "lc-70": {
+      "io": {
+        "input": "一行整数 n",
+        "output": "到达第 n 级的方法数"
+      },
+      "harness": "#include <iostream>\nusing namespace std;\n\n// TODO: 每次走 1 或 2 级，返回到达第 n 级的方法数\nint climbStairs(int n) {\n    return 0;   // 空实现：返回 0，用例会判失败\n}\n\nint main() {\n    int n;\n    if (!(cin >> n)) return 0;\n    cout << climbStairs(n) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "两级", "input": "2\n", "expect": "2" },
+        { "name": "三级", "input": "3\n", "expect": "3" },
+        { "name": "一级", "input": "1\n", "expect": "1" }
+      ]
+    },
+    "lc-322": {
+      "io": {
+        "input": "第一行 amount n；第二行 n 个硬币面额",
+        "output": "最少硬币数；凑不出输出 -1"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <algorithm>\nusing namespace std;\n\n// TODO: 返回凑出 amount 的最少硬币数，凑不出返回 -1\nint coinChange(vector<int>& coins, int amount) {\n    return -1;   // 空实现：永远凑不出，用例会判失败\n}\n\nint main() {\n    int amount, n;\n    if (!(cin >> amount >> n)) return 0;\n    vector<int> coins(n);\n    for (int i = 0; i < n; ++i) cin >> coins[i];\n    cout << coinChange(coins, amount) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "11 3\n1 2 5\n", "expect": "3" },
+        { "name": "凑不出", "input": "3 1\n2\n", "expect": "-1" },
+        { "name": "金额为 0", "input": "0 1\n1\n", "expect": "0" }
+      ]
+    },
+    "lc-53": {
+      "io": {
+        "input": "第一行整数 n；第二行 n 个整数",
+        "output": "最大子数组和（至少含一个元素）"
+      },
+      "harness": "#include <iostream>\n#include <vector>\n#include <algorithm>\nusing namespace std;\n\n// TODO: 返回连续子数组的最大和（至少一个元素）\nint maxSubArray(vector<int>& a) {\n    return 0;   // 空实现：返回 0，用例会判失败\n}\n\nint main() {\n    int n;\n    if (!(cin >> n)) return 0;\n    vector<int> a(n);\n    for (int i = 0; i < n; ++i) cin >> a[i];\n    cout << maxSubArray(a) << endl;\n    return 0;\n}",
+      "tests": [
+        { "name": "常规", "input": "9\n-2 1 -3 4 -1 2 1 -5 4\n", "expect": "6" },
+        { "name": "单元素", "input": "1\n1\n", "expect": "1" },
+        { "name": "全负数", "input": "3\n-3 -1 -2\n", "expect": "-1" }
+      ]
+    }
+  }
+}

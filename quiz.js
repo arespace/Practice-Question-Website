@@ -592,12 +592,42 @@
     }
   }
 
+  // 检测题编程题的试运行：只编译 + 空输入执行，不做判定
+  async function quizRun() {
+    const st = $('quizRunStatus');
+    if (!st) return;
+    const code = lastMine;
+    st.hidden = false;
+    if (!code.trim()) { st.innerHTML = '<p class="compile-note">没有可运行的代码。</p>'; return; }
+    if (!window.RunKit || !RunKit.supported()) {
+      st.innerHTML = '<p class="compile-note warn">当前浏览器不支持 WebAssembly / Worker，无法在本地运行。</p>';
+      return;
+    }
+    const btn = $('quizRunBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '运行中…'; }
+    st.innerHTML = '<p class="compile-note">正在编译运行…（首次加载编译器约 10–60 秒）</p>';
+    const r = await RunKit.run({ code: code, stdin: '', timeoutMs: 5000 });
+    let html;
+    if (r.timeout) html = '<p class="compile-note warn">超过 5 秒已中断：可能是死循环，或首次加载超时。</p>';
+    else if (!r.ok) html = '<p class="compile-note warn">运行器不可用：' + esc(r.message || '') + '</p>';
+    else if ((r.errors || []).length) {
+      html = '<ul class="compile-diags">' + r.errors.slice(0, 6).map(x => '<li><span>' + esc(x) + '</span></li>').join('') + '</ul>';
+    } else {
+      html = '<p class="compile-note">运行完成：退出码 ' + r.exitCode + ' · ' + r.ms + ' ms · 不判分，输出对不对由你自己判断</p>' +
+        (r.stdout ? '<pre class="run-out">' + esc(r.stdout) + '</pre>' : '<p class="compile-note">（无输出）</p>') +
+        (r.stderr ? '<pre class="run-out">' + esc(r.stderr) + '</pre>' : '');
+    }
+    st.innerHTML = html;
+    if (btn) { btn.disabled = false; btn.textContent = '编译并运行'; }
+  }
+
   // 脚本在 <head> 里执行，按钮用事件委托，避免 DOM 未就绪时绑定失败
   document.addEventListener('click', e => {
     const t = e.target;
     if (!t || !t.id) return;
     if (t.id === 'dictTimerBtn') startDictTimer();
     else if (t.id === 'compileRunBtn') tryCompiler();
+    else if (t.id === 'quizRunBtn') quizRun();
   });
 
   function shuffle(list) {
@@ -1052,6 +1082,18 @@
 
     // 默写交卷后：结构检查（命中项定位到行）
     if (mine.trim()) body.appendChild(structPanel(mine));
+
+    // 编程题：浏览器内编译运行（开放实现题没有统一 stdin 用例，只展示输出不判分）
+    if (mine.trim()) {
+      const runBox = document.createElement('div');
+      runBox.className = 'run-check';
+      runBox.innerHTML = '<h4>试运行 · 浏览器内编译执行（不判分）</h4>' +
+        '<p class="weak-tip">检测题是开放实现题，没有统一 stdin 用例：这里只编译 + 空输入运行一次，展示输出与退出码，<b>跑出输出不代表通过</b>，正确性由你自己判断。算法练习里的 LC 题才有输入/输出格式与判定用例。</p>' +
+        '<div class="compile-run"><button type="button" class="ghost-btn small" id="quizRunBtn">编译并运行</button>' +
+        '<span class="weak-tip">首次需加载约 28 MB（10–60 秒）；超过 5 秒会中断</span></div>' +
+        '<div class="compile-status" id="quizRunStatus" hidden></div>';
+      body.appendChild(runBox);
+    }
 
     const grade = document.createElement('div');
     grade.className = 'self-grade';

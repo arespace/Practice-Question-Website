@@ -434,3 +434,72 @@ test('算法练习 375px：列表与默写页都不横向溢出', async ({ page 
   await expect(page.locator('.code-diff')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
 });
+
+/* ---------------- 运行与单点测试（运行器用 mock，避免测试依赖 CDN） ---------------- */
+
+test('算法练习：载入框架、单跑用例、全部运行汇总', async ({ page }) => {
+  await page.goto('/algo.html');
+  await page.locator('.algo-card').first().locator('.ac-practice').click();
+
+  await expect(page.locator('#apIo')).toBeVisible();
+  await expect(page.locator('#apIo')).toContainText('输入格式');
+  await expect(page.locator('#apIo')).toContainText('输出格式');
+  await page.locator('#apLoadHarness').click();
+  const code = await page.inputValue('#apInput');
+  expect(code).toContain('int main');
+  expect(code).toContain('TODO');
+
+  // 运行面板在交卷前就可用：填完 TODO 直接跑用例
+  await expect(page.locator('.ap-run')).toBeVisible();
+  await expect(page.locator('.run-case')).toHaveCount(3);
+
+  // 用 mock 运行器：前两条通过，第三条故意输出错误值
+  await page.evaluate(() => {
+    window.RunKit = {
+      supported: () => true,
+      run: async o => {
+        const stdin = String(o.stdin || '');
+        if (stdin.indexOf('4 9') === 0) return { ok: true, stdout: '0 1\n', stderr: '', exitCode: 0, errors: [], ms: 11 };
+        if (stdin.indexOf('3 6') === 0) return { ok: true, stdout: '1 2\n', stderr: '', exitCode: 0, errors: [], ms: 12 };
+        return { ok: true, stdout: '-1 -1\n', stderr: '', exitCode: 0, errors: [], ms: 13 };
+      }
+    };
+  });
+
+  await page.locator('.run-case').nth(0).locator('.case-run').click();
+  await expect(page.locator('.run-case').nth(0).locator('.rc-state')).toHaveText('通过');
+  await expect(page.locator('.run-case').nth(0).locator('.rc-actual pre')).toContainText('0 1');
+  await expect(page.locator('.run-case').nth(0).locator('.rc-ms')).toContainText('ms');
+
+  await page.locator('#apRunAll').click();
+  await expect(page.locator('#apRunSum')).toContainText('通过 2/3');
+  await expect(page.locator('.run-case').nth(2).locator('.rc-state')).toHaveText('未通过');
+  await expect(page.locator('.run-case').nth(2).locator('.rc-actual pre')).toContainText('-1 -1');
+
+  // 375px：运行面板整体不横向溢出
+  await page.setViewportSize({ width: 375, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+});
+
+test('检测题编程题：交卷后可试运行并展示输出（mock）', async ({ page }) => {
+  await page.goto('/quiz.html');
+  await page.evaluate(() => document.querySelector('#typeFilter .chip[data-type="code"]').click());
+  await page.waitForFunction(() => !!document.getElementById('codeInput'));
+  await page.evaluate(() => {
+    const ta = document.getElementById('codeInput');
+    ta.value = 'int main() { return 0; }';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('submitBtn').click();
+  });
+  await expect(page.locator('#quizRunBtn')).toBeVisible();
+
+  await page.evaluate(() => {
+    window.RunKit = {
+      supported: () => true,
+      run: async () => ({ ok: true, stdout: 'hello\n', stderr: '', exitCode: 0, errors: [], ms: 9 })
+    };
+  });
+  await page.locator('#quizRunBtn').click();
+  await expect(page.locator('#quizRunStatus')).toContainText('运行完成');
+  await expect(page.locator('#quizRunStatus')).toContainText('hello');
+});

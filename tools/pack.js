@@ -32,6 +32,8 @@ const FILES = [
   'quiz.js',
   'deep.js',
   'algo.js',
+  'run.js',
+  'runner.js',
   'markdown.js',
   'store.js',
   'srs.js',

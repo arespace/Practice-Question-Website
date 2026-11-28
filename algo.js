@@ -212,6 +212,18 @@
         $('apPoints').innerHTML = '<p><b>题面要点</b>' + esc(it.points) + '</p>' +
           '<p class="ap-tip">先只看题面，自己写；交卷后再看核心思路、参考实现与易错边界。</p>';
       }
+      const run = it.run || null;
+      if ($('apIo')) {
+        $('apIo').hidden = !run;
+        $('apIo').innerHTML = run
+          ? '<p><b>输入格式</b>' + esc(run.io.input) + '</p><p><b>输出格式</b>' + esc(run.io.output) + '</p>'
+          : '';
+      }
+      if ($('apLoadHarness')) $('apLoadHarness').hidden = !run;
+      if ($('apRunSlot')) {
+        $('apRunSlot').hidden = !run;
+        $('apRunSlot').innerHTML = run ? runPanelHtml(it) : '';
+      }
       if ($('apInput')) { $('apInput').value = ''; $('apInput').disabled = false; }
       if ($('apReview')) { $('apReview').hidden = true; $('apReview').innerHTML = ''; }
       if ($('apMark')) $('apMark').hidden = true;
@@ -466,6 +478,137 @@
       }
     }
 
+    /* ---- 运行与用例（浏览器内编译成 WASM 后执行） ---- */
+    function normOut(s) {
+      return String(s == null ? '' : s)
+        .replace(/\r\n/g, '\n')
+        .replace(/[ \t]+$/gm, '')
+        .replace(/\n+$/g, '');
+    }
+
+    function runPanelHtml(it) {
+      if (!it.run) return '';
+      const tests = it.run.tests || [];
+      return [
+        '<div class="ap-run" id="apRun">',
+        '<div class="run-head">',
+        '<h4>运行与用例 · ' + tests.length + ' 条</h4>',
+        '<button type="button" class="primary-btn small" id="apRunAll">运行全部</button>',
+        '<span class="run-sum" id="apRunSum"></span>',
+        '</div>',
+        '<p class="run-hint">浏览器内编译成 WASM 后执行，支持 cin / cout；首次需加载约 28 MB，通常 10–60 秒，之后热跑约 1–2 秒/条。</p>',
+        '<div class="run-cases" id="apRunCases">',
+        tests.map((t, i) => [
+          '<div class="run-case" data-i="' + i + '">',
+          '<div class="rc-head">',
+          '<b>' + esc(t.name || ('用例 ' + (i + 1))) + '</b>',
+          '<span class="rc-state" data-state="idle">未运行</span>',
+          '<button type="button" class="ghost-btn small case-run" data-i="' + i + '">单跑</button>',
+          '<span class="rc-ms"></span>',
+          '</div>',
+          '<div class="rc-body">',
+          '<div class="rc-io"><span>输入</span><pre>' + esc(t.input) + '</pre></div>',
+          '<div class="rc-io"><span>期望输出</span><pre>' + esc(t.expect) + '</pre></div>',
+          '<div class="rc-io rc-actual" hidden><span>实际输出</span><pre></pre></div>',
+          '<div class="rc-err" hidden></div>',
+          '</div>',
+          '</div>'
+        ].join('')), '</div>',
+        '<p class="run-note">逐条编译运行；超过 8 秒（含编译）会中断运行器并提示，之后需要重新加载编译器。手撕与游戏题不适用 stdin/stdout，只做结构检查与编译。</p>',
+        '</div>'
+      ].join('');
+    }
+
+    function caseEl(i) {
+      return document.querySelector('#apRunCases .run-case[data-i="' + i + '"]');
+    }
+
+    function setCaseState(i, state, text) {
+      const el = caseEl(i);
+      if (!el) return;
+      const st = el.querySelector('.rc-state');
+      if (!st) return;
+      st.dataset.state = state;
+      st.textContent = text;
+    }
+
+    async function execCase(i, code) {
+      const it = state.cur;
+      if (!it || !it.run) return null;
+      const t = it.run.tests[i];
+      const el = caseEl(i);
+      if (!el) return null;
+      if (!window.RunKit || !RunKit.supported()) {
+        setCaseState(i, 'error', '浏览器不支持');
+        return { pass: false, skipped: true, ms: 0 };
+      }
+      const btn = el.querySelector('.case-run');
+      if (btn) btn.disabled = true;
+      setCaseState(i, 'running', '运行中…');
+      const r = await RunKit.run({ code: code, stdin: t.input, timeoutMs: 8000 });
+      if (btn) btn.disabled = false;
+      const actual = el.querySelector('.rc-actual');
+      const errBox = el.querySelector('.rc-err');
+      const msEl = el.querySelector('.rc-ms');
+      actual.hidden = true;
+      errBox.hidden = true;
+      errBox.innerHTML = '';
+      let pass = false;
+      if (r.timeout) {
+        setCaseState(i, 'timeout', '超时');
+      } else if (!r.ok) {
+        setCaseState(i, 'error', '加载失败');
+        errBox.hidden = false;
+        errBox.textContent = r.message || '运行器不可用';
+      } else if ((r.errors || []).length) {
+        setCaseState(i, 'error', '编译失败');
+        errBox.hidden = false;
+        errBox.innerHTML = (r.errors || []).slice(0, 6).map(x => '<div>' + esc(x) + '</div>').join('');
+      } else {
+        pass = normOut(r.stdout) === normOut(t.expect);
+        setCaseState(i, pass ? 'pass' : 'fail', pass ? '通过' : '未通过');
+        actual.hidden = false;
+        actual.querySelector('pre').textContent = r.stdout || '(无输出)';
+      }
+      if (msEl) msEl.textContent = r.ms != null ? r.ms + ' ms' : '';
+      return { pass: pass, ms: r.ms || 0, skipped: !!r.timeout || !r.ok || (r.errors || []).length > 0 };
+    }
+
+    let runningAll = false;
+    async function runAll() {
+      if (runningAll) return;
+      const it = state.cur;
+      if (!it || !it.run) return;
+      const code = ($('apInput') ? $('apInput').value : '').trim();
+      if (!code) { toast('先写代码，或点「载入可运行框架」'); return; }
+      runningAll = true;
+      const btn = $('apRunAll');
+      if (btn) { btn.disabled = true; btn.textContent = '运行中…'; }
+      const total = it.run.tests.length;
+      let pass = 0, totalMs = 0;
+      for (let i = 0; i < total; i++) {
+        if ($('apRunSum')) $('apRunSum').textContent = '运行中 ' + (i + 1) + '/' + total + '…';
+        const r = await execCase(i, code);
+        if (r) {
+          if (r.pass) pass++;
+          totalMs += r.ms || 0;
+        }
+      }
+      if ($('apRunSum')) $('apRunSum').textContent = '通过 ' + pass + '/' + total + ' · 合计 ' + totalMs + ' ms';
+      if (btn) { btn.disabled = false; btn.textContent = '运行全部'; }
+      runningAll = false;
+      toast('用例通过 ' + pass + '/' + total);
+    }
+
+    function loadHarness() {
+      const it = state.cur;
+      const ta = $('apInput');
+      if (!it || !it.run || !ta) return;
+      ta.value = it.run.harness;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      toast('已载入可运行框架：只差 TODO 那一段');
+    }
+
     /* ---- 交卷 ---- */
     function submitPractice() {
       const it = state.cur;
@@ -571,6 +714,17 @@
         if (t.id === 'apTimerBtn') { startTimer(); return; }
         if (t.id === 'apSubmit') { submitPractice(); return; }
         if (t.id === 'apCompileBtn') { runCompile(); return; }
+        if (t.id === 'apLoadHarness') { loadHarness(); return; }
+        if (t.id === 'apRunAll') { runAll(); return; }
+
+        const cr = t.closest('.case-run');
+        if (cr) {
+          const i = Number(cr.dataset.i);
+          const code = ($('apInput') ? $('apInput').value : '').trim();
+          if (!code) { toast('先写代码，或点「载入可运行框架」'); return; }
+          execCase(i, code);
+          return;
+        }
 
         const pm = t.closest('#apMark .chip');
         if (pm) {

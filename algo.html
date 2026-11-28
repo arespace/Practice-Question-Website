@@ -111,16 +111,21 @@
 
       <div class="ap-points" id="apPoints"></div>
 
+      <div class="ap-io" id="apIo" hidden></div>
+
       <div class="dict-bar" id="apDictBar">
         <span class="dict-ico">✎</span>
         <span>默写（白板）：只给题面，写完再对照参考实现</span>
         <span class="dict-clock" id="apClock">00:00</span>
         <button class="ghost-btn small" id="apTimerBtn">开始计时</button>
+        <button class="ghost-btn small" id="apLoadHarness" hidden>载入可运行框架</button>
         <button class="primary-btn small" id="apSubmit">交卷对照</button>
       </div>
 
       <textarea id="apInput" class="ap-input" spellcheck="false" autocomplete="off"
         placeholder="在这里手写 C++ 骨架…（无补全、无语法高亮，模拟白板）"></textarea>
+
+      <div class="ap-run-slot" id="apRunSlot" hidden></div>
 
       <div class="ap-review" id="apReview" hidden></div>
 
@@ -138,6 +143,7 @@
 
 <script src="dist/dirs.js"></script>
 <script src="store.js"></script>
+<script src="run.js"></script>
 <script src="algo.js"></script>
 <script src="loader.js"></script>
 <script src="boot.js"></script>
