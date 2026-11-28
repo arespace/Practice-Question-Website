@@ -82,9 +82,7 @@
   // 深读：先加载全局索引，再由 DeepApp 按章节按需加载正文包
   if (type === 'deep') {
     const file = 'dist/content/' + key + '.deep.index.js';
-    const script = document.createElement('script');
-    script.src = file;
-    script.onload = () => {
+    window.LoadBundle(file, () => !!(window.DEEP && window.DEEP[key])).then(() => {
       const index = window.DEEP && window.DEEP[key];
       if (!index) return fail('深读索引格式不正确：' + file);
       try {
@@ -94,16 +92,31 @@
         ContentAlert.report('深读初始化', e);
         fail('深读初始化失败：' + (e && e.message ? e.message : e));
       }
-    };
-    script.onerror = () => fail('深读索引加载失败：' + file);
-    document.body.appendChild(script);
+    }).catch(() => fail('深读索引加载失败：' + file));
+    return;
+  }
+
+  // 检测题：先加载元数据索引（首屏只需这一份），正文分类包由 QuizApp 按需加载
+  if (type === 'quiz') {
+    const file = 'dist/content/' + key + '.quiz.index.js';
+    window.LoadBundle(file).then(() => {
+      const bag = window.CONTENT && window.CONTENT[key];
+      if (!bag || !bag.quizIndex) return fail('内容包格式不正确：' + file);
+      try {
+        window.QuizApp.start({ dir: key, meta: meta, data: bag.quizIndex });
+      } catch (e) {
+        ContentAlert.report('页面初始化', e);
+        fail('页面初始化失败：' + (e && e.message ? e.message : e));
+      }
+    }).catch(() => fail('内容包加载失败：' + file));
     return;
   }
 
   const file = 'dist/content/' + key + '.' + type + '.js';
-  const script = document.createElement('script');
-  script.src = file;
-  script.onload = () => {
+  window.LoadBundle(file, () => {
+    const bag = window.CONTENT && window.CONTENT[key];
+    return !!(bag && bag[type]);
+  }).then(() => {
     const bag = window.CONTENT && window.CONTENT[key];
     if (!bag || !bag[type]) return fail('内容包格式不正确：' + file);
     const payload = { dir: key, meta: meta, data: bag[type] };
@@ -116,9 +129,7 @@
       ContentAlert.report('页面初始化', e);
       fail('页面初始化失败：' + (e && e.message ? e.message : e));
     }
-  };
-  script.onerror = () => fail('内容包加载失败：' + file);
-  document.body.appendChild(script);
+  }).catch(() => fail('内容包加载失败：' + file));
 
   function renderDirSwitch() {
     const host = document.getElementById('dirSwitch');

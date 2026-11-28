@@ -137,7 +137,18 @@ function prepareSource() {
     throw new Error('缺少 build/site/index.html，请先运行 node tools/pack.js');
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trae-deploy-'));
-  fs.cpSync(OUT, path.join(dir, 'public'), { recursive: true });
+  // 平台源码预检限制嵌套压缩包数量（>3 个 .gz 会报 SOURCE_ARTIFACT_PRECHECK_FAILED），
+  // 因此上传时跳过预压缩包；页面会由 loader.js 自动回退到普通 .js。
+  let skipped = 0;
+  fs.cpSync(OUT, path.join(dir, 'public'), {
+    recursive: true,
+    filter: (src) => {
+      if (!src.endsWith('.gz')) return true;
+      skipped++;
+      return false;
+    }
+  });
+  if (skipped) console.log('  跳过 ' + skipped + ' 个 .gz 预压缩包（平台限制：嵌套压缩包最多 3 个），页面将回退到普通 .js');
   const configPath = path.join(dir, 'execution-config.json');
   fs.writeFileSync(configPath, '{}\n');
   return {

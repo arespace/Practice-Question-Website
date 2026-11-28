@@ -1,5 +1,6 @@
 /**
- * 构建：content/*.json -> dist/dirs.js + dist/content/<dir>.cards.js / <dir>.quiz.js
+ * 构建：content/*.json -> dist/dirs.js + dist/content/<dir>.cards.js
+ *      检测题拆包：<dir>.quiz.index.js（元数据索引）+ <dir>.quiz.<cat>.js（按分类正文）
  * 用法：
  *   node tools/build.js            构建全部方向
  *   node tools/build.js --dir=KEY  只构建指定方向
@@ -28,6 +29,10 @@ if (dirsErr.length) {
 }
 
 fs.mkdirSync(DIST_CONTENT, { recursive: true });
+// 清理历史遗留产物：预压缩包（构建不再产出 .gz）与旧的整包检测题（已拆成索引 + 分类包）
+fs.readdirSync(DIST_CONTENT)
+  .filter(f => f.endsWith('.gz') || /\.quiz\.js$/.test(f))
+  .forEach(f => fs.unlinkSync(path.join(DIST_CONTENT, f)));
 
 // 深读产物先构建，这样卡片/检测题能注入「看深读」所需的单元映射
 const deepInfo = deep.build({ only, quiet: true });
@@ -139,12 +144,35 @@ manifest.dirs.forEach(meta => {
       entry.counts.bySection[g.section].quizGroups++;
       entry.counts.bySection[g.section].units += (g.units ? g.units[1] - g.units[0] + 1 : 0);
     });
-    const bundle = { dir: meta.key, groups: src.groups, items };
+    // 拆包：索引（只含筛选/统计要用的元数据，首屏只加载这个）+ 按分类的正文包
+    // 索引里不放 q/options/explain/ref，正文在渲染前按分类按需加载并回填到同一条对象上
+    const indexItems = items.map(it => ({
+      id: it.id,
+      cat: it.cat,
+      type: it.type,
+      section: it.section,
+      unit: it.unit,
+      unitTitle: it.unitTitle || '',
+      diff: it.diff || 1,
+      p: it.p || ''
+    }));
+    const index = { dir: meta.key, groups: src.groups, items: indexItems };
     fs.writeFileSync(
-      path.join(DIST_CONTENT, meta.key + '.quiz.js'),
-      BANNER + 'window.CONTENT=window.CONTENT||{};window.CONTENT["' + meta.key + '"]=window.CONTENT["' + meta.key + '"]||{};window.CONTENT["' + meta.key + '"].quiz=' + JSON.stringify(bundle) + ';\n',
+      path.join(DIST_CONTENT, meta.key + '.quiz.index.js'),
+      BANNER + 'window.CONTENT=window.CONTENT||{};window.CONTENT["' + meta.key + '"]=window.CONTENT["' + meta.key + '"]||{};window.CONTENT["' + meta.key + '"].quizIndex=' + JSON.stringify(index) + ';\n',
       'utf8'
     );
+    src.groups.forEach(g => {
+      const list = items.filter(it => it.cat === g.key);
+      if (!list.length) return;
+      fs.writeFileSync(
+        path.join(DIST_CONTENT, meta.key + '.quiz.' + g.key + '.js'),
+        BANNER + 'window.CONTENT=window.CONTENT||{};window.CONTENT["' + meta.key + '"]=window.CONTENT["' + meta.key + '"]||{};' +
+          'window.CONTENT["' + meta.key + '"].quizCats=window.CONTENT["' + meta.key + '"].quizCats||{};' +
+          'window.CONTENT["' + meta.key + '"].quizCats["' + g.key + '"]={items:' + JSON.stringify(list) + '};\n',
+        'utf8'
+      );
+    });
 
     // 单元索引（体积极小）：供首页「今日队列」定位薄弱单元，无需加载 500KB 题库
     const unitMap = new Map();

@@ -70,9 +70,9 @@ function readDist(pkg) {
 function checklist(dirKey) {
   const prio = load(dirKey);
   const deepWin = readDist(dirKey + '.deep.index.js');
-  const quizWin = readDist(dirKey + '.quiz.js');
+  const quizWin = readDist(dirKey + '.quiz.index.js');
   const index = deepWin && deepWin.DEEP ? deepWin.DEEP[dirKey] : null;
-  const quiz = quizWin && quizWin.CONTENT ? quizWin.CONTENT[dirKey].quiz : null;
+  const quiz = quizWin && quizWin.CONTENT ? quizWin.CONTENT[dirKey].quizIndex : null;
   if (!index || !quiz) {
     console.error('缺少 dist 产物，请先运行 node tools/build.js');
     return false;

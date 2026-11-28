@@ -43,6 +43,7 @@ test('速背卡：揭晓答案后可见，自评后进入下一张', async ({ pa
 
 test('检测题：选择选项后可判分并展示反馈', async ({ page }) => {
   await page.goto('/quiz.html');
+  await expect(page.locator('#deckPos')).toContainText('/ 366');
   await page.evaluate(() => document.querySelector('#typeFilter .chip[data-type="single"]').click());
   await expect(page.locator('#deckPos')).toContainText('/ 44');
 
@@ -55,6 +56,7 @@ test('检测题：选择选项后可判分并展示反馈', async ({ page }) => 
 
 test('记忆：编程筛选下停在第 5 题，刷新后筛选与位置都还原', async ({ page }) => {
   await page.goto('/quiz.html');
+  await expect(page.locator('#deckPos')).toContainText('/ 366');
   await page.evaluate(() => document.querySelector('#typeFilter .chip[data-type="code"]').click());
   await expect(page.locator('#deckPos')).toHaveText('1 / 209');
 
@@ -96,6 +98,7 @@ for (const [w, stacked] of [[375, true], [1440, false]]) {  test.describe(`参�
 
     test(`无横向滚动、可完整阅读（${stacked ? '单栏堆叠' : '左右并排'}）`, async ({ page }) => {
       await page.goto('/quiz.html');
+      await expect(page.locator('#deckPos')).toContainText('/ 366');
       await page.evaluate(() => document.querySelector('#typeFilter .chip[data-type="code"]').click());
       await page.evaluate(draft => {
         const ta = document.getElementById('codeInput');

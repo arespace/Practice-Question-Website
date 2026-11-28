@@ -395,25 +395,33 @@
     function loadUnitMap() {
       if (unitMapCache) return Promise.resolve(unitMapCache);
       if (window.UNITMAP && window.UNITMAP[DIR]) { unitMapCache = window.UNITMAP[DIR]; return Promise.resolve(unitMapCache); }
-      return new Promise(resolve => {
-        const s = document.createElement('script');
-        s.src = 'dist/content/' + DIR + '.unitmap.js';
-        s.onload = () => { unitMapCache = (window.UNITMAP || {})[DIR] || []; resolve(unitMapCache); };
-        s.onerror = () => { unitMapCache = []; resolve(unitMapCache); };
-        document.body.appendChild(s);
-      });
+      return window.LoadBundle(
+        'dist/content/' + DIR + '.unitmap.js',
+        () => !!(window.UNITMAP && window.UNITMAP[DIR])
+      ).then(() => {
+        unitMapCache = (window.UNITMAP || {})[DIR] || [];
+        return unitMapCache;
+      }).catch(() => { unitMapCache = []; return unitMapCache; });
     }
 
+    // 复习包要跨全部题目：先取索引，再并行拉全部正文分类包后合并
     function loadQuizBundle() {
       const bag = window.CONTENT && window.CONTENT[DIR];
-      if (bag && bag.quiz) return Promise.resolve(bag.quiz);
-      return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'dist/content/' + DIR + '.quiz.js';
-        s.onload = () => resolve(((window.CONTENT || {})[DIR] || {}).quiz || { items: [] });
-        s.onerror = () => reject(new Error('题库加载失败'));
-        document.body.appendChild(s);
-      });
+      const indexP = bag && bag.quizIndex ? Promise.resolve() : window.LoadBundle('dist/content/' + DIR + '.quiz.index.js');
+      return indexP.then(() => {
+        const b = (window.CONTENT || {})[DIR] || {};
+        const index = b.quizIndex;
+        if (!index) return { items: [] };
+        const cats = (index.groups || []).map(g => g.key);
+        const missing = cats.filter(c => !(b.quizCats && b.quizCats[c]));
+        return Promise.all(missing.map(c =>
+          window.LoadBundle('dist/content/' + DIR + '.quiz.' + c + '.js').catch(() => null)
+        )).then(() => {
+          const full = {};
+          Object.keys(b.quizCats || {}).forEach(c => (b.quizCats[c].items || []).forEach(it => { full[it.id] = it; }));
+          return { items: index.items.map(it => Object.assign({}, it, full[it.id] || {})) };
+        });
+      }).catch(() => ({ items: [] }));
     }
 
     // 到期错题：答错过且未毕业、到期时间已过

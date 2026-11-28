@@ -32,6 +32,7 @@ const FILES = [
   'markdown.js',
   'store.js',
   'srs.js',
+  'loader.js',
   'boot.js'
 ];
 

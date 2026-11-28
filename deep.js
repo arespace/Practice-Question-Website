@@ -106,17 +106,14 @@
     function loadChapter(chId) {
       if (pkgCache[chId]) return Promise.resolve(pkgCache[chId]);
       if (pkgLoading[chId]) return pkgLoading[chId];
-      pkgLoading[chId] = new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'dist/content/' + DIR + '.deep.' + chId + '.js';
-        s.onload = () => {
-          const pkg = (window.DEEP_PKG || {})[DIR + '|' + chId];
-          if (!pkg) return reject(new Error('章节包格式不正确：' + s.src));
-          pkgCache[chId] = pkg;
-          resolve(pkg);
-        };
-        s.onerror = () => reject(new Error('章节包加载失败：' + s.src));
-        document.body.appendChild(s);
+      pkgLoading[chId] = window.LoadBundle(
+        'dist/content/' + DIR + '.deep.' + chId + '.js',
+        () => !!(window.DEEP_PKG || {})[DIR + '|' + chId]
+      ).then(() => {
+        const pkg = (window.DEEP_PKG || {})[DIR + '|' + chId];
+        if (!pkg) throw new Error('章节包格式不正确');
+        pkgCache[chId] = pkg;
+        return pkg;
       }).catch(e => {
         delete pkgLoading[chId];
         throw e;
@@ -160,6 +157,8 @@
     /* ---------------- 目录 ---------------- */
     function renderToc() {
       tocEl.innerHTML = '';
+      activeEl = null;
+      openCh = null;
       CHAPTERS.forEach(ch => {
         const shown = ch.units.filter(matchPrio);
         if (!shown.length) return;
@@ -215,17 +214,28 @@
       });
     }
 
+    // 同一时间只展开一章：仅对变化的两章做 DOM 操作
+    let openCh = null;
     function setChapterOpen(chId, open) {
-      tocEl.querySelectorAll('.deep-units').forEach(box => {
-        box.hidden = open ? box.dataset.ch !== chId : true;
-      });
-      tocEl.querySelectorAll('.deep-ch').forEach(b => {
-        b.classList.toggle('active', open && b.dataset.ch === chId);
-        b.setAttribute('aria-expanded', open && b.dataset.ch === chId ? 'true' : 'false');
-      });
-      tocEl.querySelectorAll('.deep-ch-row').forEach(r => {
-        r.classList.toggle('active', open && r.dataset.ch === chId);
-      });
+      const next = open ? chId : null;
+      if (openCh === next) return;
+      if (openCh) {
+        const b = tocEl.querySelector('.deep-units[data-ch="' + openCh + '"]');
+        const h = tocEl.querySelector('.deep-ch[data-ch="' + openCh + '"]');
+        const r = tocEl.querySelector('.deep-ch-row[data-ch="' + openCh + '"]');
+        if (b) b.hidden = true;
+        if (h) { h.classList.remove('active'); h.setAttribute('aria-expanded', 'false'); }
+        if (r) r.classList.remove('active');
+      }
+      if (next) {
+        const b = tocEl.querySelector('.deep-units[data-ch="' + next + '"]');
+        const h = tocEl.querySelector('.deep-ch[data-ch="' + next + '"]');
+        const r = tocEl.querySelector('.deep-ch-row[data-ch="' + next + '"]');
+        if (b) b.hidden = false;
+        if (h) { h.classList.add('active'); h.setAttribute('aria-expanded', 'true'); }
+        if (r) r.classList.add('active');
+      }
+      openCh = next;
     }
 
     function expandChapter(chId) { setChapterOpen(chId, true); }
@@ -237,10 +247,14 @@
       else setChapterOpen(chId, true);
     }
 
+    // 只切换变化的前后两个节点，避免每次翻页遍历 122 个单元
+    let activeEl = null;
     function markActive(anchorId) {
-      tocEl.querySelectorAll('.deep-unit').forEach(b => {
-        b.classList.toggle('active', b.dataset.anchor === anchorId);
-      });
+      const next = anchorId ? tocEl.querySelector('.deep-unit[data-anchor="' + anchorId + '"]') : null;
+      if (activeEl === next) return;
+      if (activeEl) activeEl.classList.remove('active');
+      if (next) next.classList.add('active');
+      activeEl = next;
     }
 
     /* ---------------- 面试频次筛选 ---------------- */
@@ -441,6 +455,8 @@
       });
 
       // 表格：首列固定，右缘在可横滚时显示渐隐
+      // 同一帧内先批量读尺寸、再批量写 class，避免 27 张表逐张强制回流
+      const tableBoxes = [];
       article.querySelectorAll('.md-table-wrap').forEach(wrap => {
         if (wrap.parentNode && wrap.parentNode.classList.contains('md-table-box')) return;
         const box = document.createElement('div');
@@ -456,8 +472,20 @@
         const onResize = () => sync();
         window.addEventListener('resize', onResize);
         cleanups.push(() => window.removeEventListener('resize', onResize));
-        sync();
+        tableBoxes.push(sync);
       });
+      if (tableBoxes.length) {
+        requestAnimationFrame(() => {
+          const boxes = Array.from(article.querySelectorAll('.md-table-box'));
+          // 读取阶段：一次性触发一次布局
+          const flags = boxes.map(box => {
+            const wrap = box.firstChild;
+            return wrap ? wrap.scrollWidth > wrap.clientWidth + 2 : false;
+          });
+          // 写入阶段：只改 class，不再读尺寸
+          boxes.forEach((box, i) => box.classList.toggle('has-overflow', flags[i]));
+        });
+      }
     }
 
     /* ---------------- 打开单元 / 章节 ---------------- */
@@ -479,7 +507,7 @@
         updatePrevNext(anchorId);
         if (!opts.keepSearch) closeResults();
         document.title = '单元 ' + meta.unit + ' · ' + meta.title + ' · 深读';
-        window.scrollTo({ top: 0, behavior: 'auto' });
+        if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'auto' });
         closeDrawer();
       }).catch(e => {
         report(e);
@@ -500,7 +528,7 @@
         nextBtn.disabled = true;
         closeResults();
         document.title = ch.title + ' · 深读';
-        window.scrollTo({ top: 0, behavior: 'auto' });
+        if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'auto' });
         closeDrawer();
       }).catch(e => {
         report(e);

@@ -12,6 +12,76 @@
     const SEC_META = {};
     (META.sections || []).forEach(s => { SEC_META[s.key] = s; });
 
+    /* ---------------- 分类包按需加载 ----------------
+     * 首屏只加载 <dir>.quiz.index.js（id/cat/type/unit/diff/p 等元数据，筛选、统计、
+     * SRS、组卷、位置记忆全都只依赖它）；题干/选项/解析在渲染前按分类加载
+     * <dir>.quiz.<cat>.js，并原地回填到索引里的同一条对象上，所以 deck、错题、
+     * 统计、导出拿到的仍是同一批对象，不需要重算任何计数。 */
+    const BY_ID = {};
+    ITEMS.forEach(it => { BY_ID[it.id] = it; });
+    const loaded = {};
+    const pending = {};
+    let allPending = null;
+
+    function catBundleUrl(cat) {
+      return 'dist/content/' + DIR + '.quiz.' + cat + '.js';
+    }
+
+    function ensureCat(cat) {
+      if (!cat || loaded[cat]) return Promise.resolve();
+      if (pending[cat]) return pending[cat];
+      pending[cat] = window.LoadBundle(catBundleUrl(cat)).then(() => {
+        const bag = (window.CONTENT || {})[DIR] || {};
+        const pkg = bag.quizCats && bag.quizCats[cat];
+        if (!pkg || !Array.isArray(pkg.items)) throw new Error('分类包格式不正确：' + cat);
+        pkg.items.forEach(full => {
+          const stub = BY_ID[full.id];
+          if (stub) Object.assign(stub, full);
+        });
+        loaded[cat] = true;
+      }).then(() => { delete pending[cat]; }, err => { delete pending[cat]; throw err; });
+      return pending[cat];
+    }
+
+    function ensureCats(cats) {
+      return Promise.all(cats.filter(c => c && !loaded[c]).map(ensureCat));
+    }
+
+    // 跨全部分类的操作（全文搜索 / 导出复习包）才需要全部正文，按需一次并行拉齐
+    function ensureAll() {
+      if (!allPending) {
+        allPending = ensureCats(GROUPS.map(g => g.key)).then(() => { allPending = null; }, err => { allPending = null; throw err; });
+      }
+      return allPending;
+    }
+
+    function loadedAll(cats) {
+      return cats.every(c => !c || loaded[c]);
+    }
+
+    // 桌面端 hover 分类时提前取包，点下去基本已经就绪
+    function prefetchCat(cat) {
+      if (cat && cat !== 'all' && !loaded[cat] && !pending[cat]) ensureCat(cat).catch(() => {});
+    }
+
+    // 顺序刷到分类交界前，空闲时预取「下一题」所在的分类包（只提前 1 个）
+    let prefetchTimer = 0;
+    function schedulePrefetch() {
+      if (prefetchTimer) return;
+      const run = () => {
+        prefetchTimer = 0;
+        if (state.view !== 'quiz') return;
+        const next = [];
+        for (let k = state.idx + 1; k < state.deck.length && next.length < 1; k++) {
+          const c = state.deck[k].cat;
+          if (c && !loaded[c] && next.indexOf(c) < 0) next.push(c);
+        }
+        next.forEach(prefetchCat);
+      };
+      prefetchTimer = window.requestIdleCallback ? window.requestIdleCallback(run, { timeout: 1500 }) : setTimeout(run, 600);
+    }
+
+
     const TYPE_NAME = { single: '单选', multi: '多选', fill: '填空', code: '编程' };
     const DAY = 86400000;
     const LETTER = 'ABCDEF';
@@ -356,6 +426,7 @@
         '<span class="cat-name">' + esc(cat.short || cat.name) + '</span>' +
         '<span class="cat-count">' + done + '/' + items.length + '</span>';
       btn.addEventListener('click', () => { state.cat = cat.key; applyFilter(); });
+      btn.addEventListener('pointerenter', () => prefetchCat(cat.key));
       list.appendChild(btn);
     });
   }
@@ -371,11 +442,13 @@
     document.querySelectorAll('#prioFilter .chip').forEach(b => b.classList.toggle('active', b.dataset.prio === state.prio));
   }
 
+  let renderSeq = 0;
   function renderQuestion() {
     const it = curItem();
     const card = $('quizCard');
     const empty = $('quizEmpty');
     if (!it) {
+      renderSeq++;
       card.hidden = true;
       empty.hidden = false;
       $('deckPos').textContent = '0 / 0';
@@ -383,16 +456,29 @@
       $('nextNav').disabled = true;
       return;
     }
-    card.hidden = false;
-    empty.hidden = true;
-
-    try {
-      renderQuestionBody(it);
-    } catch (e) {
-      brokenQuestion(it, e);
-    }
-    renderToolbar();
-    persistPos();
+    const seq = ++renderSeq;
+    // 位置/计数与题干一起上屏：分类包没到位时先不刷新工具栏，避免出现“位置变了题没变”
+    const paint = () => {
+      if (seq !== renderSeq) return;
+      card.hidden = false;
+      empty.hidden = true;
+      try {
+        renderQuestionBody(it);
+      } catch (e) {
+        brokenQuestion(it, e);
+      }
+      renderToolbar();
+      persistPos();
+      if (!it.cat || loaded[it.cat]) schedulePrefetch();
+    };
+    if (!it.cat || loaded[it.cat]) { paint(); return; }
+    ensureCat(it.cat).then(paint).catch(() => {
+      if (seq !== renderSeq) return;
+      card.hidden = false;
+      empty.hidden = true;
+      brokenQuestion(it, new Error('分类包加载失败：' + it.cat));
+      renderToolbar();
+    });
   }
 
   // 单条内容异常：跳过这一条并提示，翻页与其他题不受影响
@@ -789,6 +875,25 @@
   }
 
   function renderWrong() {
+    // 错题卡要展示题干与解析：只补「包含错题/已毕业题」的分类包，不加载全部
+    const need = [];
+    Object.keys(store.quiz).forEach(id => {
+      const it = BY_ID[id];
+      if (!it || need.indexOf(it.cat) >= 0) return;
+      if (isWrong(id) || isGraduated(id)) need.push(it.cat);
+    });
+    if (!loadedAll(need)) {
+      renderWrongFilters();
+      const list = $('wrongList');
+      list.innerHTML = '';
+      $('wrongEmpty').hidden = true;
+      const tip = document.createElement('p');
+      tip.className = 'weak-tip';
+      tip.textContent = '正在载入错题内容…';
+      list.appendChild(tip);
+      ensureCats(need).then(renderWrong).catch(() => toast('错题内容包加载失败'));
+      return;
+    }
     renderWrongFilters();
     document.querySelectorAll('#wrongTypeFilter .chip').forEach(b => b.classList.toggle('active', b.dataset.type === wrongType));
     const list = $('wrongList');
@@ -1407,24 +1512,36 @@
     // 模考只取能自动判分的题型，范围跟随当前分类/搜索筛选
     const pool = pickByConfig(ITEMS.filter(matches), false);
     if (!pool.length) { toast('当前筛选下没有可模考的题'); return; }
-    const secs = build.limit * 60;
-    exam = {
-      items: pool,
-      picks: {},
-      fills: {},
-      idx: 0,
-      submitted: false,
-      startedAt: Date.now(),
-      endsAt: secs ? Date.now() + secs * 1000 : 0
-    };
-    $('examResult').hidden = true;
-    $('examResult').innerHTML = '';
-    $('examCard').hidden = false;
-    $('examTab').hidden = false;
-    $('buildPanel').hidden = true;
-    setView('exam');
-    startExamTimer();
-    toast('模考开始 · ' + pool.length + ' 题' + (build.limit ? ' · ' + build.limit + ' 分钟' : ' · 不限时'));
+    // 组卷只用元数据；开考前把抽中题所在的分类包补齐（通常就 1–2 个）
+    const need = [];
+    pool.forEach(it => { if (it.cat && need.indexOf(it.cat) < 0) need.push(it.cat); });
+    if (!loadedAll(need)) {
+      toast('正在载入模考题目…');
+      ensureCats(need).then(beginExam, () => toast('模考内容包加载失败，请重试'));
+      return;
+    }
+    beginExam();
+
+    function beginExam() {
+      const secs = build.limit * 60;
+      exam = {
+        items: pool,
+        picks: {},
+        fills: {},
+        idx: 0,
+        submitted: false,
+        startedAt: Date.now(),
+        endsAt: secs ? Date.now() + secs * 1000 : 0
+      };
+      $('examResult').hidden = true;
+      $('examResult').innerHTML = '';
+      $('examCard').hidden = false;
+      $('examTab').hidden = false;
+      $('buildPanel').hidden = true;
+      setView('exam');
+      startExamTimer();
+      toast('模考开始 · ' + pool.length + ' 题' + (build.limit ? ' · ' + build.limit + ' 分钟' : ' · 不限时'));
+    }
   }
 
   function startExamTimer() {
@@ -1694,6 +1811,12 @@
     const v = e.target.value.trim().toLowerCase();
     searchTimer = setTimeout(() => {
       state.search = v;
+      // 全文搜索要跨全部分类比对题干/选项/解析：先补齐正文再筛
+      if (v && !loadedAll(GROUPS.map(g => g.key))) {
+        toast('正在载入全部题目用于搜索…');
+        ensureAll().then(applyFilter, () => { toast('搜索内容加载失败'); applyFilter(); });
+        return;
+      }
       applyFilter();
     }, 160);
   });
@@ -1932,18 +2055,25 @@
 
     // 先快照已存位置：setView 的首次渲染会写入新位置，必须在它之前取
     const savedPos = store.pos ? { id: store.pos.id, idx: store.pos.idx } : null;
-    setView('quiz');
 
-    // 定位优先级：URL ?unit= > URL ?q= > 上次位置
+    // 定位优先级：URL ?unit= > URL ?q= > 上次位置；先按元数据组卷并定好目标，
+    // 只预取首题所在的那个分类包，再一次性上屏（题干与“1 / N”同时出现）
+    buildDeck(false);
     if (urlUnit) {
       // URL 指定了单元：保持该单元首题，不做位置恢复
     } else if (focusQ) {
       const p = state.deck.findIndex(x => x.id === focusQ);
-      if (p >= 0) { state.idx = p; renderQuestion(); }
-    } else if (restorePos(savedPos)) {
-      renderQuestion();
+      if (p >= 0) state.idx = p;
+    } else {
+      restorePos(savedPos);
     }
-    posFrozen = false; // 初始化完成后恢复正常记忆
+    const warm = curItem();
+    const bootView = () => {
+      setView('quiz');
+      posFrozen = false; // 初始化完成后恢复正常记忆
+    };
+    if (warm && warm.cat && !loaded[warm.cat]) ensureCat(warm.cat).then(bootView, bootView);
+    else bootView();
   }
 
   window.QuizApp = { start: start };
